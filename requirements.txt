@@ -1,0 +1,22 @@
+# Core engine
+fastapi
+uvicorn[standard]
+pydantic>=2
+pydantic-settings
+
+# Orchestration
+langgraph
+langchain-core
+
+# LLM (Groq) + structured output
+groq
+instructor
+
+# Vector store + local embeddings (BGE-small via FastEmbed / ONNX, no torch)
+chromadb
+fastembed
+
+# Utilities + tests
+python-dotenv
+httpx
+pytest
