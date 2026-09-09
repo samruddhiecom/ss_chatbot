@@ -1,7 +1,7 @@
-"""All data contracts in one place so every module agrees on shapes.
+"""All data contracts for the SS AI Advisor chatbot.
 
-The Snapshot model is the durable deliverable. The ConversationState is threaded
-through the LangGraph state machine, one invocation per user turn.
+The bot routes founders to the right SS service and offers a free strategy call.
+Output is a ServiceRecommendation, not a generic snapshot.
 """
 from __future__ import annotations
 
@@ -13,35 +13,18 @@ from typing_extensions import TypedDict
 
 
 # --------------------------------------------------------------------------- #
-# Stages
+# Conversation state
 # --------------------------------------------------------------------------- #
-class Stage(str, Enum):
-    IDEA = "idea"
-    MARKET_CUSTOMER = "market_customer"
-    OFFER_CHANNELS = "offer_channels"
-    OPERATIONS = "operations"
-    DONE = "done"
-
-
-STAGE_ORDER: List[Stage] = [
-    Stage.IDEA,
-    Stage.MARKET_CUSTOMER,
-    Stage.OFFER_CHANNELS,
-    Stage.OPERATIONS,
-]
-
-
-def next_stage(stage: Stage) -> Stage:
-    if stage == Stage.DONE:
-        return Stage.DONE
-    idx = STAGE_ORDER.index(stage)
-    if idx + 1 < len(STAGE_ORDER):
-        return STAGE_ORDER[idx + 1]
-    return Stage.DONE
+class ConvStage(str, Enum):
+    OPENING = "opening"        # gathering stage + bottleneck
+    CLARIFY = "clarify"        # one follow-up if needed
+    RECOMMEND = "recommend"    # service recommendation given
+    CTA = "cta"                # call offered
+    DONE = "done"              # lead captured
 
 
 # --------------------------------------------------------------------------- #
-# Intent (input rail)
+# Intent (input rail — unchanged)
 # --------------------------------------------------------------------------- #
 class Intent(str, Enum):
     ON_TOPIC = "on_topic"
@@ -55,9 +38,9 @@ class Intent(str, Enum):
     OFF_TOPIC = "off_topic"
     ABUSE = "abuse"
     HARDSHIP = "hardship"
+    EXISTING_CLIENT = "existing_client"
 
 
-# Intents that trigger the deferral pattern and drop a named gap into the snapshot.
 DEFERRAL_INTENTS = {
     Intent.ADVICE_LEGAL,
     Intent.ADVICE_TAX,
@@ -67,63 +50,49 @@ DEFERRAL_INTENTS = {
     Intent.STATISTICS_BAIT,
 }
 
-# Intents that produce a bounded response but no snapshot content.
 NON_PROGRESSING_INTENTS = DEFERRAL_INTENTS | {
     Intent.INJECTION,
     Intent.OFF_TOPIC,
     Intent.ABUSE,
     Intent.HARDSHIP,
+    Intent.EXISTING_CLIENT,
 }
 
 
 class IntentDecision(BaseModel):
-    """Structured output of the classifier (Instructor-parsed)."""
-    intent: Intent = Field(description="The single best-matching intent for the user's latest message.")
+    intent: Intent = Field(description="The single best-matching intent.")
     reason: str = Field(description="One short clause explaining the choice.")
 
 
 # --------------------------------------------------------------------------- #
-# Stage extraction (slot filling)
+# Founder profile (built up during conversation)
 # --------------------------------------------------------------------------- #
-class StageExtraction(BaseModel):
-    """What the model organised from the founder's input for the current stage.
-
-    Only fields the founder actually provided should be filled. Never invent.
-    """
-    captured: dict = Field(
-        default_factory=dict,
-        description="Key facts the founder stated for this stage, organised. Keys are short labels.",
-    )
-    covered: bool = Field(description="True if the stage has enough to move on.")
-    follow_up: Optional[str] = Field(
-        default=None,
-        description="If not covered, one short follow-up question targeting the biggest missing piece.",
-    )
+class FounderProfile(BaseModel):
+    stage: Optional[str] = Field(default=None, description="idea / pre-revenue / early revenue / scaling")
+    bottleneck: Optional[str] = Field(default=None, description="Biggest bottleneck in their own words")
+    already_tried: Optional[str] = Field(default=None, description="What they have already tried")
+    service_interest: Optional[str] = Field(default=None, description="Which SS service they seem to need")
+    covered: bool = Field(default=False, description="True if we have enough to make a recommendation")
+    follow_up: Optional[str] = Field(default=None, description="One follow-up question if not yet covered")
 
 
 # --------------------------------------------------------------------------- #
-# Snapshot (the durable deliverable)
+# Service recommendation (the output)
 # --------------------------------------------------------------------------- #
-class Snapshot(BaseModel):
-    idea_framing: str = Field(description="A crisp framing of the idea and stage, organised from what the founder said.")
-    customer_hypothesis: str = Field(description="Who the customer is, as the founder understands them. No invented segments.")
-    offer_sketch: str = Field(description="The offer as described by the founder.")
-    channel_shortlist: List[str] = Field(default_factory=list, description="Channels the founder named or that follow directly from what they said.")
-    named_gaps: List[str] = Field(default_factory=list, description="What is unknown or unvalidated, including anything deferred to a professional.")
-    next_steps: List[str] = Field(default_factory=list, description="Concrete next actions, one per gap where possible.")
-
-
-class GroundingReport(BaseModel):
-    """Output of the claims-clean self-check on synthesised text."""
-    supported: bool = Field(description="True if every claim traces to the provided sources.")
-    unsupported_claims: List[str] = Field(default_factory=list, description="Claims not supported by sources.")
+class ServiceRecommendation(BaseModel):
+    primary_service: str = Field(description="The single most relevant SS service for this founder.")
+    secondary_service: Optional[str] = Field(default=None, description="A second SS service if clearly relevant.")
+    reasoning: str = Field(description="Why this service fits — grounded in what the founder said.")
+    one_piece_of_advice: str = Field(description="One concrete directional insight for this founder.")
+    cta: str = Field(description="The free strategy call offer — once, no pressure.")
+    page_link: Optional[str] = Field(default=None, description="The most relevant SS page link from the KB.")
 
 
 # --------------------------------------------------------------------------- #
-# Conversation state (threaded through the graph)
+# Graph state
 # --------------------------------------------------------------------------- #
 class Turn(TypedDict):
-    role: str  # "user" | "assistant"
+    role: str
     content: str
 
 
@@ -131,14 +100,14 @@ class GraphState(TypedDict, total=False):
     session_id: str
     messages: List[Turn]
     last_user_input: str
-    current_stage: str          # Stage value
-    intent: str                 # Intent value of last input
-    stage_followups: dict       # stage -> count
-    captured: dict              # stage -> captured dict
+    conv_stage: str
+    intent: str
+    founder_profile: dict
     assistant_reply: str
-    named_gaps: List[str]
+    recommendation: dict
+    recommendation_ready: bool
+    cta_offered: bool
     grounding_flags: List[str]
-    snapshot_ready: bool
 
 
 # --------------------------------------------------------------------------- #
@@ -148,11 +117,6 @@ class StartResponse(BaseModel):
     session_id: str
     disclosure: List[str]
     message: str
-    stage: str
-
-
-class SessionRequest(BaseModel):
-    session_id: str
 
 
 class MessageRequest(BaseModel):
@@ -160,17 +124,19 @@ class MessageRequest(BaseModel):
     message: str
 
 
+class SessionRequest(BaseModel):
+    session_id: str
+
+
 class MessageResponse(BaseModel):
     message: str
-    stage: str
     intent: str
-    snapshot_ready: bool
+    recommendation_ready: bool
     grounding_flags: List[str] = Field(default_factory=list)
 
 
-class SnapshotResponse(BaseModel):
-    snapshot: Snapshot
-    grounding_report: GroundingReport
+class RecommendationResponse(BaseModel):
+    recommendation: ServiceRecommendation
 
 
 class CaptureRequest(BaseModel):
@@ -182,4 +148,12 @@ class CaptureRequest(BaseModel):
 class CaptureResponse(BaseModel):
     captured: bool
     tool_source: str
-    snapshot_attached: bool
+    recommendation_attached: bool
+
+
+# --------------------------------------------------------------------------- #
+# Grounding report (used by output rail)
+# --------------------------------------------------------------------------- #
+class GroundingReport(BaseModel):
+    supported: bool = Field(description="True if every claim traces to the provided sources.")
+    unsupported_claims: List[str] = Field(default_factory=list)

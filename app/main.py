@@ -1,7 +1,11 @@
-"""FastAPI engine. This is the backend Himanshu's embed shell calls.
+"""FastAPI engine for the SS AI Advisor.
 
-Sessions are in-memory for the draft build; production swaps this for the shared
-store with 30-day transcript retention and per-visitor + global rate limits.
+Endpoints Himanshu's embed calls:
+  POST /conversation/start      — disclosure + opening message
+  POST /conversation/message    — send a founder message, get a reply
+  POST /conversation/recommendation — get the service recommendation
+  POST /capture                 — submit lead (name + email)
+  GET  /health
 """
 from __future__ import annotations
 
@@ -12,22 +16,21 @@ from datetime import date
 from fastapi import FastAPI, HTTPException
 
 from config import settings
+from app import advisor as adv
 from app import capture as capture_mod
-from app import snapshot as snapshot_mod
 from app.graph import GRAPH
 from app.schemas import (
     CaptureRequest,
     CaptureResponse,
     MessageRequest,
     MessageResponse,
+    RecommendationResponse,
+    ServiceRecommendation,
     SessionRequest,
-    SnapshotResponse,
-    Stage,
     StartResponse,
 )
-from app.stages import opener
 
-app = FastAPI(title="SS Business Planning Chatbot — Engine", version="0.1.0-draft")
+app = FastAPI(title="SS AI Advisor Engine", version="1.0.0")
 
 DISCLOSURE = [
     "Automated planning assistant.",
@@ -35,12 +38,9 @@ DISCLOSURE = [
     "General guidance, not professional advice.",
 ]
 
-# --------------------------------------------------------------------------- #
-# In-memory session + rate-limit state (draft only)
-# --------------------------------------------------------------------------- #
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, dict] = {}
-_SNAPSHOTS: dict[str, object] = {}
+_RECOMMENDATIONS: dict[str, dict] = {}
 _GLOBAL = {"day": date.today().isoformat(), "count": 0}
 
 
@@ -61,9 +61,6 @@ def _get_session(session_id: str) -> dict:
     return state
 
 
-# --------------------------------------------------------------------------- #
-# Endpoints
-# --------------------------------------------------------------------------- #
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "llm_configured": settings.has_llm, "model": settings.smart_model}
@@ -74,18 +71,22 @@ def start() -> StartResponse:
     with _LOCK:
         _check_global_cap()
         sid = uuid.uuid4().hex
-        first = opener(Stage.IDEA.value)
         _SESSIONS[sid] = {
             "session_id": sid,
-            "messages": [{"role": "assistant", "content": first}],
-            "current_stage": Stage.IDEA.value,
-            "stage_followups": {},
-            "captured": {},
-            "named_gaps": [],
+            "messages": [{"role": "assistant", "content": adv.OPENING}],
+            "conv_stage": "opening",
+            "intent": "",
+            "founder_profile": {},
+            "recommendation": None,
+            "recommendation_ready": False,
+            "cta_offered": 0,
             "grounding_flags": [],
-            "snapshot_ready": False,
         }
-    return StartResponse(session_id=sid, disclosure=DISCLOSURE, message=first, stage=Stage.IDEA.value)
+    return StartResponse(
+        session_id=sid,
+        disclosure=DISCLOSURE,
+        message=adv.OPENING,
+    )
 
 
 @app.post("/conversation/message", response_model=MessageResponse)
@@ -93,51 +94,56 @@ def message(req: MessageRequest) -> MessageResponse:
     with _LOCK:
         _check_global_cap()
         state = _get_session(req.session_id)
-
         user_turns = sum(1 for m in state["messages"] if m["role"] == "user")
         if user_turns >= settings.max_messages_per_session:
-            raise HTTPException(status_code=429, detail="This session has reached its message limit.")
-
+            raise HTTPException(status_code=429, detail="Session message limit reached.")
         state["messages"].append({"role": "user", "content": req.message})
         state["last_user_input"] = req.message
 
-    # Graph invocation outside the lock (it may make network calls).
     result = GRAPH.invoke(state)
 
     with _LOCK:
         _SESSIONS[req.session_id] = result
+        if result.get("recommendation"):
+            _RECOMMENDATIONS[req.session_id] = result["recommendation"]
 
     return MessageResponse(
         message=result.get("assistant_reply", ""),
-        stage=result.get("current_stage", Stage.IDEA.value),
         intent=result.get("intent", ""),
-        snapshot_ready=bool(result.get("snapshot_ready", False)),
+        recommendation_ready=bool(result.get("recommendation_ready", False)),
         grounding_flags=result.get("grounding_flags", []),
     )
 
 
-@app.post("/conversation/snapshot", response_model=SnapshotResponse)
-def get_snapshot(req: SessionRequest) -> SnapshotResponse:
+@app.post("/conversation/recommendation", response_model=RecommendationResponse)
+def get_recommendation(req: SessionRequest) -> RecommendationResponse:
     state = _get_session(req.session_id)
-    snap, report = snapshot_mod.assemble(state["messages"], state.get("named_gaps", []))
-    with _LOCK:
-        _SNAPSHOTS[req.session_id] = snap
-    return SnapshotResponse(snapshot=snap, grounding_report=report)
+    rec_dict = _RECOMMENDATIONS.get(req.session_id) or state.get("recommendation")
+    if not rec_dict:
+        # Build it now if profile is available
+        from app.schemas import FounderProfile
+        profile_dict = state.get("founder_profile", {})
+        profile = FounderProfile(**profile_dict) if profile_dict else FounderProfile()
+        rec = adv.build_recommendation(state["messages"], profile)
+        rec_dict = rec.model_dump()
+        with _LOCK:
+            _RECOMMENDATIONS[req.session_id] = rec_dict
+    return RecommendationResponse(recommendation=ServiceRecommendation(**rec_dict))
 
 
 @app.post("/capture", response_model=CaptureResponse)
 def capture(req: CaptureRequest) -> CaptureResponse:
     _get_session(req.session_id)
-    snap = _SNAPSHOTS.get(req.session_id)
-    rec = capture_mod.capture_lead(req.session_id, req.name, req.email, snap)
+    rec_dict = _RECOMMENDATIONS.get(req.session_id)
+    rec = ServiceRecommendation(**rec_dict) if rec_dict else None
+    record = capture_mod.capture_lead(req.session_id, req.name, req.email, rec)
     return CaptureResponse(
         captured=True,
-        tool_source=rec["tool_source"],
-        snapshot_attached=rec["snapshot_attached"],
+        tool_source=record["tool_source"],
+        recommendation_attached=record["snapshot_attached"],
     )
 
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=False)
