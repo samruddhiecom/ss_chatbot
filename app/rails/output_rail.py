@@ -35,7 +35,6 @@ def no_invented_numbers(text: str, sources: str) -> List[str]:
     for m in _NUMBER_RE.finditer(text or ""):
         token = m.group(0)
         digits = _normalise(token)
-        # Keep only the digit core for comparison (strip $, %, x).
         core = re.sub(r"[^\d.]", "", digits)
         if core and core not in src:
             offenders.append(token.strip())
@@ -49,9 +48,11 @@ def claims_clean(text: str, sources: str) -> GroundingReport:
     if not llm.settings.has_llm:
         return GroundingReport(supported=True, unsupported_claims=[])
     system = (
-        "You verify grounding. Given SOURCES and TEXT, list any factual claim in TEXT that is "
-        "not supported by SOURCES. Organising or rephrasing the founder's own words counts as "
-        "supported. Inventing facts, figures, or market data counts as unsupported. "
+        "You verify grounding. Given SOURCES (a knowledge base plus a conversation transcript) and TEXT, "
+        "list any factual claim in TEXT that is NOT supported by SOURCES. "
+        "Important: claims that come from the founder's own statements in the TRANSCRIPT are considered supported — "
+        "they are the founder's words being organised, not invented facts. "
+        "Only flag claims that are invented, fabricated, or not traceable to either the KB or the transcript. "
         "If everything is supported, return supported=true with an empty list."
     )
     user = f"SOURCES:\n{sources}\n\nTEXT:\n{text}"
