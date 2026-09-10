@@ -12,7 +12,7 @@ import threading
 import uuid
 from datetime import date
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
@@ -124,6 +124,58 @@ def capture(req: CaptureRequest) -> CaptureResponse:
         recommendation_attached=False,
     )
 
+
+
+
+# ── Notion webhook ────────────────────────────────────────────────────────────
+import hashlib, hmac, threading as _threading
+
+_SYNC_LOCK = _threading.Lock()
+_SYNCING = False
+
+def _run_sync():
+    global _SYNCING
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        import notion_page_sync
+        notion_page_sync.NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
+        notion_page_sync.PAGE_ID = os.environ.get("NOTION_PAGE_ID", "3d48ba072e19805a96d3f42b67c9a6e0")
+        notion_page_sync.main()
+    except Exception as e:
+        import logging
+        logging.getLogger("webhook").error("sync failed: %s", e)
+    finally:
+        global _SYNCING
+        _SYNCING = False
+
+
+@app.post("/notion-webhook")
+async def notion_webhook(request: Request):
+    """Notion calls this when the KB page is edited. Triggers a re-sync."""
+    from fastapi import Request
+    global _SYNCING
+
+    # Notion sends a verification challenge on first setup
+    body = await request.json()
+    if "challenge" in body:
+        return {"challenge": body["challenge"]}
+
+    # Deduplicate — only one sync at a time
+    with _SYNC_LOCK:
+        if _SYNCING:
+            return {"status": "sync already in progress"}
+        _SYNCING = True
+
+    # Run sync in background so webhook returns immediately
+    t = _threading.Thread(target=_run_sync, daemon=True)
+    t.start()
+    return {"status": "sync started"}
+
+
+@app.get("/sync-status")
+def sync_status():
+    return {"syncing": _SYNCING}
 
 if __name__ == "__main__":
     import uvicorn
