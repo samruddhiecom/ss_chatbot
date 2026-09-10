@@ -1,10 +1,9 @@
 """FastAPI engine for the SS AI Advisor.
 
-Endpoints Himanshu's embed calls:
-  POST /conversation/start      — disclosure + opening message
-  POST /conversation/message    — send a founder message, get a reply
-  POST /conversation/recommendation — get the service recommendation
-  POST /capture                 — submit lead (name + email)
+Endpoints:
+  POST /conversation/start    — disclosure + opening message
+  POST /conversation/message  — send a message, get a reply with CTA when ready
+  POST /capture               — submit lead (name + email)
   GET  /health
 """
 from __future__ import annotations
@@ -14,9 +13,9 @@ import uuid
 from datetime import date
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from app import advisor as adv
 from app import capture as capture_mod
 from app.graph import GRAPH
 from app.schemas import (
@@ -24,13 +23,18 @@ from app.schemas import (
     CaptureResponse,
     MessageRequest,
     MessageResponse,
-    RecommendationResponse,
-    ServiceRecommendation,
-    SessionRequest,
     StartResponse,
 )
+from app import advisor as adv
 
-app = FastAPI(title="SS AI Advisor Engine", version="1.0.0")
+app = FastAPI(title="SS AI Advisor Engine", version="2.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DISCLOSURE = [
     "Automated planning assistant.",
@@ -40,7 +44,6 @@ DISCLOSURE = [
 
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, dict] = {}
-_RECOMMENDATIONS: dict[str, dict] = {}
 _GLOBAL = {"day": date.today().isoformat(), "count": 0}
 
 
@@ -74,11 +77,9 @@ def start() -> StartResponse:
         _SESSIONS[sid] = {
             "session_id": sid,
             "messages": [{"role": "assistant", "content": adv.OPENING}],
-            "conv_stage": "opening",
             "intent": "",
             "founder_profile": {},
-            "recommendation": None,
-            "recommendation_ready": False,
+            "cta_ready": False,
             "cta_offered": 0,
             "grounding_flags": [],
         }
@@ -104,43 +105,23 @@ def message(req: MessageRequest) -> MessageResponse:
 
     with _LOCK:
         _SESSIONS[req.session_id] = result
-        if result.get("recommendation"):
-            _RECOMMENDATIONS[req.session_id] = result["recommendation"]
 
     return MessageResponse(
         message=result.get("assistant_reply", ""),
         intent=result.get("intent", ""),
-        recommendation_ready=bool(result.get("recommendation_ready", False)),
+        recommendation_ready=bool(result.get("cta_ready", False)),
         grounding_flags=result.get("grounding_flags", []),
     )
-
-
-@app.post("/conversation/recommendation", response_model=RecommendationResponse)
-def get_recommendation(req: SessionRequest) -> RecommendationResponse:
-    state = _get_session(req.session_id)
-    rec_dict = _RECOMMENDATIONS.get(req.session_id) or state.get("recommendation")
-    if not rec_dict:
-        # Build it now if profile is available
-        from app.schemas import FounderProfile
-        profile_dict = state.get("founder_profile", {})
-        profile = FounderProfile(**profile_dict) if profile_dict else FounderProfile()
-        rec = adv.build_recommendation(state["messages"], profile)
-        rec_dict = rec.model_dump()
-        with _LOCK:
-            _RECOMMENDATIONS[req.session_id] = rec_dict
-    return RecommendationResponse(recommendation=ServiceRecommendation(**rec_dict))
 
 
 @app.post("/capture", response_model=CaptureResponse)
 def capture(req: CaptureRequest) -> CaptureResponse:
     _get_session(req.session_id)
-    rec_dict = _RECOMMENDATIONS.get(req.session_id)
-    rec = ServiceRecommendation(**rec_dict) if rec_dict else None
-    record = capture_mod.capture_lead(req.session_id, req.name, req.email, rec)
+    record = capture_mod.capture_lead(req.session_id, req.name, req.email, None)
     return CaptureResponse(
         captured=True,
         tool_source=record["tool_source"],
-        recommendation_attached=record["snapshot_attached"],
+        recommendation_attached=False,
     )
 
 
