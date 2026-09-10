@@ -55,6 +55,11 @@ def run_advisor(state: GraphState) -> dict:
     from app.schemas import FounderProfile
     profile = FounderProfile(**profile_dict) if profile_dict else advisor.extract_profile(messages)
 
+    # If the founder has sent at least one message, mark as covered — enough to pull to call
+    user_messages = [m for m in messages if m.get("role") == "user"]
+    if user_messages and not profile.covered:
+        profile.covered = True
+
     from app.kb import store
     kb_chunks = []
     if profile.bottleneck:
@@ -63,7 +68,7 @@ def run_advisor(state: GraphState) -> dict:
         kb_chunks = store.query(profile.service_interest, top_k=5)
 
     # Once profile is covered, next reply includes the CTA
-    cta_ready = bool(profile.covered)
+    cta_ready = bool(len([m for m in messages if m.get("role") == "user"]) >= 1)
     if cta_ready:
         cta_count += 1
 
