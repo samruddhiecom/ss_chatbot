@@ -32,13 +32,13 @@ SERVICE_LINKS = {
 }
 
 # ── Profile extraction ────────────────────────────────────────────────────────
-_PROFILE_SYSTEM = """You extract a founder's profile from a conversation for the SS AI Advisor.
+_PROFILE_SYSTEM = """You extract a founder's profile from a conversation for the Simplified Startup AI Advisor.
 
 Extract:
 - stage: one of idea / pre-revenue / early revenue / scaling (or null if not clear)
 - bottleneck: their biggest problem in their own words (or null)
 - already_tried: what they have already attempted (or null)
-- service_interest: which of these SS services they seem to need most:
+- service_interest: which of these Simplified Startup services they seem to need most:
   Digital Marketing, Website Development, Branding and Growth,
   Sales and Lead Generation, AI Automation, Business and Startup Advisory,
   Talent and Staffing, Bookkeeping and Accounting (or null if unclear)
@@ -64,13 +64,13 @@ def extract_profile(messages: list[dict]) -> FounderProfile:
 
 
 # ── Reply generation ──────────────────────────────────────────────────────────
-_REPLY_SYSTEM = """You are the SS AI Advisor. Your ONLY job is to get the founder to book a free strategy call with Simplified Startup.
+_REPLY_SYSTEM = """You are the Simplified Startup AI Advisor. Your ONLY job is to get the founder to book a free strategy call with Simplified Startup.
 
 You are NOT an advisor. You do NOT give advice. You do NOT explain how to fix things.
 
 Your approach:
 1. Acknowledge what the founder said — show you understand their situation.
-2. Signal that this is exactly what SS handles — briefly, without pitching.
+2. Signal that this is exactly what Simplified Startup handles — briefly, without pitching.
 3. Create mild urgency or curiosity — pull them toward the call.
 4. Ask ONE question that moves them closer to booking, OR offer the call directly.
 
@@ -80,7 +80,8 @@ When you have enough context, close with the call:
 Rules:
 - Maximum 3 sentences per reply.
 - Never give advice, tips, steps, or how-to guidance.
-- Never list services or explain what SS does in detail.
+- Never list services or explain what Simplified Startup does in detail.
+- Always say "Simplified Startup" in full — never abbreviate to "SS".
 - Never use jargon: leverage, synergistic, best-in-class, move the needle, holistically, unlock.
 - Never quote prices.
 - Never promise results.
@@ -106,15 +107,16 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], cta_count: int) -
 
 
 # ── Recommendation assembly ───────────────────────────────────────────────────
-_REC_SYSTEM = """You produce an SS service recommendation based on what the founder told you.
+_REC_SYSTEM = """You produce a Simplified Startup service recommendation based on what the founder told you.
 
 Rules:
-- primary_service must be one of the 8 SS services exactly as named.
+- primary_service must be one of the 8 Simplified Startup services exactly as named.
 - reasoning must be grounded in what the founder said — no invented facts.
 - one_piece_of_advice must be concrete and actionable.
 - cta is the free strategy call offer — warm, no pressure.
-- page_link is the most relevant SS page from the KB.
+- page_link is the most relevant Simplified Startup page from the KB.
 - Never quote prices. Never promise results.
+- Always say "Simplified Startup" in full — never abbreviate to "SS".
 - secondary_service only if clearly relevant — leave null otherwise."""
 
 _SERVICES_LIST = ", ".join(SERVICE_LINKS.keys())
@@ -133,7 +135,7 @@ def build_recommendation(messages: list[dict], profile: FounderProfile) -> Servi
     kb_chunks = store.query(profile.bottleneck or "startup advisory", top_k=6)
     kb_text = "\n\n".join(kb_chunks)
     return llm.structured(
-        system=f"{_REC_SYSTEM}\n\nAvailable SS services: {_SERVICES_LIST}\n\nSS page links: {SERVICE_LINKS}",
+        system=f"{_REC_SYSTEM}\n\nAvailable Simplified Startup services: {_SERVICES_LIST}\n\nSimplified Startup page links: {SERVICE_LINKS}",
         user=f"KNOWLEDGE BASE:\n{kb_text}\n\nCONVERSATION:\n{transcript}\n\nFounder stage: {profile.stage}\nBottleneck: {profile.bottleneck}",
         response_model=ServiceRecommendation,
         temperature=0.2,
