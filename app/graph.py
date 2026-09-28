@@ -61,13 +61,27 @@ def _build_retrieval_query(profile, last_user_input: str) -> str:
     return " ".join(parts) if parts else (profile.bottleneck or "startup advisory")
 
 
+def _substantive_user_turns(messages) -> int:
+    """Count user turns that carry real content, ignoring pure greetings so a
+    'hi' opener doesn't inflate the discovery count and trigger the CTA early."""
+    count = 0
+    for m in messages:
+        if m.get("role") != "user":
+            continue
+        if input_rail.looks_like_greeting(m.get("content", "")):
+            continue
+        count += 1
+    return count
+
+
 def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: int) -> str:
     """Pick the conversation phase for this turn.
 
     - A clear buying signal at any point jumps straight to close.
     - Otherwise we stay in discover until we understand the bottleneck (and have had
-      at least two exchanges), or until three user turns have passed, then offer the
-      call once. After the call has been offered, further turns are objection handling.
+      at least two substantive exchanges), or until three substantive user turns have
+      passed, then offer the call once. After the call has been offered, further turns
+      are objection handling.
     """
     if advisor.is_buying_signal(last_user_input):
         return "close"
@@ -83,7 +97,7 @@ def run_advisor(state: GraphState) -> dict:
     messages = list(state.get("messages", []))
     cta_offered = int(state.get("cta_offered", 0) or 0)
     last_user_input = state.get("last_user_input", "")
-    user_turns = sum(1 for m in messages if m.get("role") == "user")
+    user_turns = _substantive_user_turns(messages)
 
     # Re-read the founder from the whole conversation each turn.
     profile = advisor.extract_profile(messages)
