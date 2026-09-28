@@ -13,13 +13,11 @@ from app import llm
 from app.kb import store
 from app.schemas import FounderProfile, ServiceRecommendation
 
-# ── Opening message (from KB Section 13) ────────────────────────────────────
 OPENING = (
     "Hi \U0001f44b Tell me your business stage and biggest bottleneck, "
     "and I\u2019ll point you to the right service \u2014 or a human, if you want to take it further."
 )
 
-# ── Service page links (from KB Section 10) ──────────────────────────────────
 SERVICE_LINKS = {
     "Digital Marketing": "/digital-marketing",
     "Website Development": "/website-development",
@@ -31,7 +29,9 @@ SERVICE_LINKS = {
     "Bookkeeping and Accounting": "/bookkeeping",
 }
 
-# ── Profile extraction ────────────────────────────────────────────────────────
+PRICING_URL = "https://simplified-startup-ui.vercel.app/pricing"
+BOOK_URL    = "https://simplified-startup-ui.vercel.app/#book"
+
 _PROFILE_SYSTEM = """You extract a founder's profile from a conversation for the Simplified Startup AI Advisor.
 
 Extract:
@@ -63,8 +63,7 @@ def extract_profile(messages: list[dict]) -> FounderProfile:
     )
 
 
-# ── Reply generation ──────────────────────────────────────────────────────────
-_REPLY_SYSTEM = """You are the Simplified Startup AI Advisor. Your ONLY job is to get the founder to book a free strategy call with Simplified Startup.
+_REPLY_SYSTEM = f"""You are the Simplified Startup AI Advisor. Your ONLY job is to get the founder to book a free strategy call with Simplified Startup.
 
 You are NOT an advisor. You do NOT give advice. You do NOT explain how to fix things.
 
@@ -75,7 +74,23 @@ Your approach:
 4. Ask ONE question that moves them closer to booking, OR offer the call directly.
 
 When you have enough context, close with the call:
-"Book a free 30-minute strategy call — you'll leave with a written plan either way: simplified-startup-ui.vercel.app/#book"
+"Book a free 30-minute strategy call — you'll leave with a written plan either way: {BOOK_URL}"
+
+PRICING QUESTIONS (cost, price, how much, budget, retainer, what does it cost):
+Do NOT keep asking for a meeting time. Do NOT deflect with vague language.
+Acknowledge the question, tell them pricing is published publicly before any call,
+send them to the pricing page: {PRICING_URL}
+Then offer the call as the next step after they have seen the numbers.
+Example: "Pricing is published on the site before any call — no need to book just to see numbers. Take a look at {PRICING_URL}, and if you want to talk through which scope fits your situation, the strategy call is free: {BOOK_URL}"
+
+MULTI-TURN CONTEXT:
+Use everything the founder has already told you. Do NOT restart the pull-to-call loop from scratch each turn.
+If you already know their stage, product, bottleneck, or what they have tried — reference it and move forward.
+The conversation should feel like it is progressing, not looping.
+
+TIMELINE QUESTIONS (how long, how fast, when will I see results):
+Do not deflect to the call. Give the honest KB range: SEO typically takes 3-6 months for meaningful movement;
+paid ads and a new site can move things in weeks. State this, then offer the call.
 
 Rules:
 - Maximum 3 sentences per reply.
@@ -83,10 +98,10 @@ Rules:
 - Never list services or explain what Simplified Startup does in detail.
 - Always say "Simplified Startup" in full — never abbreviate to "SS".
 - Never use jargon: leverage, synergistic, best-in-class, move the needle, holistically, unlock.
-- Never quote prices.
-- Never promise results.
+- Never quote specific price figures.
+- Never promise results or guarantee outcomes.
 - One question per message maximum.
-- Warm, direct, confident. Like a senior operator who has seen this problem before and knows exactly what to do.
+- Warm, direct, confident. Like a senior operator who has seen this problem before.
 - Do not pretend to be human if asked.
 - Existing clients go to simplifiedstartupllc@gmail.com immediately.
 
@@ -106,7 +121,6 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], cta_count: int) -
     )
 
 
-# ── Recommendation assembly ───────────────────────────────────────────────────
 _REC_SYSTEM = """You produce a Simplified Startup service recommendation based on what the founder told you.
 
 Rules:

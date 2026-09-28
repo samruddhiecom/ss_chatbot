@@ -23,14 +23,23 @@ _INJECTION_PATTERNS = [
 ]
 _INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
 
+# Cost/pricing keywords that are sales objections, NOT financial advice.
+# These should be routed as on_topic, never as advice_financial.
+_PRICING_OBJECTION_RE = re.compile(
+    r"\b(cost|costs|pricing|price|how much|what('s| is) (it|this) cost|"
+    r"retainer|monthly fee|budget|afford|worth it|expensive|cheap|pay for this|"
+    r"ballpark|rough(ly)? (how much|what)|give me a (number|figure|range))\b",
+    re.IGNORECASE,
+)
+
 _CLASSIFIER_SYSTEM = """You classify a founder's message to the SS AI Advisor chatbot.
 Return exactly one intent.
 
 Intents:
-- on_topic: asking about their business, stage, bottleneck, or SS services.
+- on_topic: asking about their business, stage, bottleneck, SS services, or the cost/pricing of SS services.
 - advice_legal: asks for legal advice (entity choice, contracts, IP).
 - advice_tax: asks for tax advice (how much tax, deductions, tax structure).
-- advice_financial: asks whether to take a loan or financing decision.
+- advice_financial: asks whether to take a loan or a financing decision — NOT asking about SS service pricing.
 - advice_investment: asks for a valuation, how much to raise, or investment decisions.
 - projection_bait: asks the assistant to forecast revenue or growth numbers.
 - statistics_bait: asks for market size, TAM, or statistics.
@@ -40,6 +49,10 @@ Intents:
 - hardship: expresses personal hardship or distress.
 - existing_client: identifies as an existing SS client with an account or billing issue.
 
+IMPORTANT: Questions about the cost or pricing of Simplified Startup's own services are on_topic,
+not advice_financial. Only classify as advice_financial if the founder is asking about taking a loan,
+seeking investment, or making a personal financing decision.
+
 Pick the single best match. Boundary-seeking outranks on_topic."""
 
 
@@ -47,9 +60,17 @@ def looks_like_injection(text: str) -> bool:
     return bool(_INJECTION_RE.search(text or ""))
 
 
+def looks_like_pricing_objection(text: str) -> bool:
+    """Pricing/cost questions about SS services are always on_topic."""
+    return bool(_PRICING_OBJECTION_RE.search(text or ""))
+
+
 def classify(messages: List[dict], user_input: str) -> Intent:
     if looks_like_injection(user_input):
         return Intent.INJECTION
+    # Short-circuit: pricing questions about SS are always on_topic
+    if looks_like_pricing_objection(user_input):
+        return Intent.ON_TOPIC
     if not llm.settings.has_llm:
         return Intent.ON_TOPIC
     recent = llm.transcript_text(messages[-6:]) if messages else ""
@@ -63,7 +84,6 @@ def classify(messages: List[dict], user_input: str) -> Intent:
     return decision.intent
 
 
-# ── Bounded responses ─────────────────────────────────────────────────────────
 _DEFERRAL_TOPIC = {
     Intent.ADVICE_LEGAL: "a legal question",
     Intent.ADVICE_TAX: "a tax question",
@@ -73,7 +93,6 @@ _DEFERRAL_TOPIC = {
     Intent.STATISTICS_BAIT: "a request for market statistics",
 }
 
-# Unknown-answer template from KB Section 13
 _UNKNOWN = (
     "I don\u2019t want to guess on that one. "
     "The fastest way to a straight answer is a quick strategy call, "
@@ -91,7 +110,7 @@ def _deferral_reply(intent: Intent) -> str:
     guidance = store.query(topic, top_k=2)
     guidance_text = "\n".join(guidance) if guidance else ""
     system = (
-        "You are the SS AI Advisor. The founder asked something in a deferral category. "
+        "You are the Simplified Startup AI Advisor. The founder asked something in a deferral category. "
         "Respond in two moves: (1) one sentence of useful GENERAL framing only, no specific advice; "
         "(2) say a licensed professional should weigh in on their specifics. "
         "Then use this exact closing: "
@@ -114,7 +133,7 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
         ),
         Intent.OFF_TOPIC: (
             "That\u2019s outside what I can help with here. "
-            "I\u2019m focused on pointing founders to the right SS service. "
+            "I\u2019m focused on pointing founders to the right Simplified Startup service. "
             "What\u2019s your biggest business bottleneck right now?"
         ),
         Intent.ABUSE: (
@@ -124,7 +143,7 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
         Intent.HARDSHIP: (
             "That sounds genuinely hard, and I\u2019m sorry. "
             "I\u2019m a planning assistant so for anything personal please reach someone you trust. "
-            "If it\u2019s business-related, the SS team is at simplifiedstartupllc@gmail.com and happy to talk."
+            "If it\u2019s business-related, the Simplified Startup team is at simplifiedstartupllc@gmail.com and happy to talk."
         ),
         Intent.EXISTING_CLIENT: (
             "This one\u2019s better with a person. "
