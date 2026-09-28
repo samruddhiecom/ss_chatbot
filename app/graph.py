@@ -85,7 +85,7 @@ def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: i
     """
     if advisor.is_buying_signal(last_user_input):
         return "close"
-    discovery_done = (user_turns >= 2 and bool(profile.bottleneck)) or user_turns >= 3
+    discovery_done = (user_turns >= 5 and bool(profile.bottleneck)) or user_turns >= 3
     if cta_offered == 0 and not discovery_done:
         return "discover"
     if cta_offered == 0 and discovery_done:
