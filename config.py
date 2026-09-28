@@ -19,7 +19,6 @@ class Settings(BaseSettings):
 
     # --- LLM (Groq) ---
     groq_api_key: str = ""
-    # A capable model for generation + snapshot assembly, a fast one for classification.
     smart_model: str = "llama-3.3-70b-versatile"
     fast_model: str = "llama-3.1-8b-instant"
     temperature: float = 0.2
@@ -27,16 +26,21 @@ class Settings(BaseSettings):
     # --- Embeddings (local, no API cost, no torch) ---
     embed_model: str = "BAAI/bge-small-en-v1.5"
 
+    # --- Reranker (flashrank cross-encoder, no torch) ---
+    # Model is downloaded on first use to this directory.
+    # On Railway, set RERANKER_CACHE_DIR to a persistent volume path if available.
+    reranker_cache_dir: str = str(BASE_DIR / ".reranker_cache")
+
     # --- Vector store ---
     chroma_dir: str = str(CHROMA_DIR)
     collection_name: str = "ssbp_allowlist"
-    retrieval_top_k: int = 4
+    retrieval_top_k: int = 4  # final chunks passed to LLM after reranking
 
     # --- Conversation control ---
     max_followups_per_stage: int = 0
     max_messages_per_session: int = 60
     global_daily_cap: int = 2000
-    transcript_retention_days: int = 30  # documented; enforced by the production store
+    transcript_retention_days: int = 30
 
     # --- Capture ---
     tool_source: str = "a52"

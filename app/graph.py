@@ -47,6 +47,25 @@ def handle_refusal(state: GraphState) -> dict:
     }
 
 
+def _build_retrieval_query(profile, last_user_input: str) -> str:
+    """Build a richer retrieval query by combining the last user message with
+    the extracted bottleneck and service interest.
+
+    The original code used only profile.bottleneck or profile.service_interest
+    (a 2-5 word extracted phrase), which produces a weak cosine match against
+    the enriched 200-word chunks in Chroma. Including the full user message
+    gives BGE-small more semantic signal to anchor on.
+    """
+    parts = []
+    if last_user_input:
+        parts.append(last_user_input.strip())
+    if profile.bottleneck and profile.bottleneck not in (last_user_input or ""):
+        parts.append(profile.bottleneck)
+    if profile.service_interest and profile.service_interest not in " ".join(parts):
+        parts.append(profile.service_interest)
+    return " ".join(parts) if parts else (profile.bottleneck or "startup advisory")
+
+
 def run_advisor(state: GraphState) -> dict:
     messages = list(state.get("messages", []))
     cta_count = state.get("cta_offered", 0) or 0
@@ -55,25 +74,26 @@ def run_advisor(state: GraphState) -> dict:
     from app.schemas import FounderProfile
     profile = FounderProfile(**profile_dict) if profile_dict else advisor.extract_profile(messages)
 
-    # If the founder has sent at least one message, mark as covered — enough to pull to call
     user_messages = [m for m in messages if m.get("role") == "user"]
     if user_messages and not profile.covered:
         profile.covered = True
 
     from app.kb import store
-    kb_chunks = []
-    if profile.bottleneck:
-        kb_chunks = store.query(profile.bottleneck, top_k=5)
-    elif profile.service_interest:
-        kb_chunks = store.query(profile.service_interest, top_k=5)
 
-    # Once profile is covered, next reply includes the CTA
-    cta_ready = bool(len([m for m in messages if m.get("role") == "user"]) >= 1)
+    # Build expanded query — full last message + extracted signals
+    last_user_input = state.get("last_user_input", "")
+    retrieval_query = _build_retrieval_query(profile, last_user_input)
+
+    kb_chunks = []
+    if retrieval_query:
+        # top_k=10 → reranker in store.query() prunes to settings.retrieval_top_k
+        kb_chunks = store.query(retrieval_query, top_k=10, rerank=True)
+
+    cta_ready = bool(len(user_messages) >= 1)
     if cta_ready:
         cta_count += 1
 
     reply = advisor.generate_reply(messages, kb_chunks, cta_count)
-
     messages.append({"role": "assistant", "content": reply})
 
     return {

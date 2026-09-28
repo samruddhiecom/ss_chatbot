@@ -16,6 +16,12 @@ instructor
 chromadb
 fastembed
 
+# Reranker (cross-encoder via flashrank, no torch, no C++ compile)
+flashrank
+
+# Notion sync
+notion-client
+
 # Utilities + tests
 python-dotenv
 httpx

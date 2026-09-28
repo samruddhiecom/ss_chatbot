@@ -1,29 +1,94 @@
 """
-notion_page_sync.py — reads a Notion page, chunks by H2/H3 headings, ingests into ChromaDB.
+notion_page_sync.py — syncs the SS Advisor Knowledge Base (Notion DATABASE) into ChromaDB.
 
-PMs edit the Notion page like a normal document.
-Run this script to update the bot's knowledge base.
+Changes vs original:
+  1. Reads from the Notion DATABASE (NOTION_DB_ID env var), not a single page.
+     The live KB is a database with ~22 rows, each a knowledge article.
+  2. Enforces Visibility=Public AND Status=Approved filter — only approved rows
+     are indexed. Unapproved drafts never reach retrieval.
+  3. Reads row body blocks (the actual page content inside each DB row) via
+     blocks.children.list, not just the row's property fields.
+  4. Heading-based chunking now includes sentence-level overlap (1-sentence
+     carry-over) so context at chunk boundaries is preserved.
+  5. Skips rows with "Contains pricing" = True (price data stays off the index;
+     bot defers to the pricing page per KB guardrail 1).
 
 Usage:
-    python notion_page_sync.py
+    python notion_page_sync.py            # manual run
+    Called automatically via /notion-webhook endpoint in main.py
+
+Environment variables required:
+    NOTION_TOKEN   — Notion integration token
+    NOTION_DB_ID   — Database ID (e74924e630fa46e89791c6eb44604c42)
 """
-import os, sys
+import os
+import re
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
+
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-TOKEN   = os.environ["NOTION_TOKEN"]
-PAGE_ID = os.environ.get("NOTION_PAGE_ID", "3d48ba072e19805a96d3f42b67c9a6e0")
+TOKEN    = os.environ["NOTION_TOKEN"]
+DB_ID    = os.environ.get("NOTION_DB_ID", "e74924e630fa46e89791c6eb44604c42")
 
 from notion_client import Client
 from app.kb import store
 
 nc = Client(auth=TOKEN)
 
-# ── 1. Fetch all blocks recursively ─────────────────────────────────────────
-def get_blocks(block_id):
+
+# ── 1. Query the database — approved public rows only ────────────────────────
+
+def _plain(prop: dict) -> str:
+    if not prop:
+        return ""
+    t = prop.get("type", "")
+    if t == "title":
+        return "".join(r.get("plain_text", "") for r in prop.get("title", [])).strip()
+    if t == "rich_text":
+        return "".join(r.get("plain_text", "") for r in prop.get("rich_text", [])).strip()
+    if t == "select":
+        sel = prop.get("select")
+        return sel.get("name", "").strip() if sel else ""
+    if t == "checkbox":
+        return str(prop.get("checkbox", False))
+    if t == "status":
+        s = prop.get("status")
+        return s.get("name", "").strip() if s else ""
+    return ""
+
+
+def fetch_approved_rows() -> list[dict]:
+    """Return all DB rows where Visibility=Public AND Status=Approved."""
+    rows = []
+    cursor = None
+    while True:
+        kwargs = {
+            "database_id": DB_ID,
+            "page_size": 100,
+            "filter": {
+                "and": [
+                    {"property": "Visibility", "select": {"equals": "Public"}},
+                    {"property": "Status",     "status": {"equals": "Approved"}},
+                ]
+            },
+        }
+        if cursor:
+            kwargs["start_cursor"] = cursor
+        res = nc.databases.query(**kwargs)
+        rows.extend(res.get("results", []))
+        if not res.get("has_more"):
+            break
+        cursor = res.get("next_cursor")
+    return rows
+
+
+# ── 2. Fetch page body blocks for a row ──────────────────────────────────────
+
+def _get_blocks(block_id: str) -> list[dict]:
     results = []
     cursor = None
     while True:
@@ -37,7 +102,8 @@ def get_blocks(block_id):
         cursor = res.get("next_cursor")
     return results
 
-def block_text(block):
+
+def _block_text(block: dict) -> str:
     bt = block.get("type", "")
     node = block.get(bt, {})
     if isinstance(node, dict):
@@ -45,31 +111,52 @@ def block_text(block):
         return "".join(r.get("plain_text", "") for r in rich).strip()
     return ""
 
-# ── 2. Chunk by heading ───────────────────────────────────────────────────────
+
+# ── 3. Chunking with sentence-level overlap ───────────────────────────────────
+
 HEADING_TYPES = {"heading_1", "heading_2", "heading_3"}
+SENT_RE = re.compile(r'(?<=[.!?])\s+')
 
-def chunk_blocks(blocks):
-    """Split blocks into chunks at every heading boundary."""
+
+def _split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in SENT_RE.split(text) if s.strip()]
+
+
+def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
+    """Split blocks into chunks at every heading boundary.
+
+    One sentence from the previous chunk is carried over into the next chunk
+    so that retrieval doesn't lose context at boundaries.
+    """
     chunks = []
-    current_heading = "Introduction"
-    current_level  = "heading_1"
-    current_lines  = []
+    current_heading = title  # use the row title as the implicit first heading
+    current_level   = "heading_1"
+    current_lines: list[str] = []
+    carry: str = ""  # last sentence of the previous chunk
 
-    def flush():
+    def flush(next_heading: str = "") -> None:
+        nonlocal carry
         text = "\n".join(current_lines).strip()
         if text:
+            full_text = (carry + " " + text).strip() if carry else text
             chunks.append({
                 "heading": current_heading,
-                "level":   current_level,
-                "text":    text,
+                "level": current_level,
+                "text": full_text,
             })
+            # carry the last sentence into the next chunk
+            sentences = _split_sentences(text)
+            carry = sentences[-1] if sentences else ""
+        else:
+            # empty chunk — don't update carry
+            pass
 
     for b in blocks:
-        bt = block_text(b)
         btype = b.get("type", "")
+        bt = _block_text(b)
         if btype in HEADING_TYPES:
             flush()
-            current_heading = bt
+            current_heading = bt or current_heading
             current_level   = btype
             current_lines   = []
         elif bt:
@@ -78,80 +165,96 @@ def chunk_blocks(blocks):
     flush()
     return chunks
 
-# ── 3. Tag chunks with category from the KB doc's own metadata ───────────────
+
+# ── 4. Category classification ────────────────────────────────────────────────
+
 GUARDRAIL_KEYWORDS = {"guardrail", "never do", "never", "must not", "do not"}
 VOICE_KEYWORDS     = {"persona", "style rule", "voice", "tone", "advisor", "opening line"}
-ROUTING_KEYWORDS   = {"routing", "escalate", "handoff", "intent"}
+ROUTING_KEYWORDS   = {"routing", "escalate", "handoff", "intent", "cta"}
 DEFERRAL_KEYWORDS  = {"legal", "tax", "accounting", "investment", "visa", "medical"}
 
-def classify_chunk(heading: str, text: str):
+
+def classify_chunk(heading: str, text: str) -> str:
     h = heading.lower()
-    t = text.lower()
-    combined = h + " " + t
-    if any(k in h for k in GUARDRAIL_KEYWORDS):
-        return "boundary"
-    if any(k in h for k in VOICE_KEYWORDS):
-        return "voice"
-    if any(k in h for k in ROUTING_KEYWORDS):
-        return "routing"
-    if any(k in h for k in DEFERRAL_KEYWORDS):
-        return "deferral_language"
-    if "faq" in h or "frequently" in h:
-        return "faq"
-    if "service" in h or "digital marketing" in h or "bookkeeping" in h or "automation" in h:
-        return "service"
-    if "pricing" in h or "commercial" in h or "bundle" in h:
-        return "pricing"
-    if "process" in h or "phase" in h:
-        return "process"
-    if "proof" in h or "testimonial" in h or "credibility" in h:
-        return "social_proof"
-    if "objection" in h:
-        return "objection"
-    if "who we" in h or "good fit" in h or "not a fit" in h:
-        return "fit"
-    if "positioning" in h or "messaging" in h or "why us" in h or "trust" in h:
-        return "positioning"
-    if "snapshot" in h or "company" in h or "elevator" in h:
-        return "company_fact"
-    if "qualification" in h or "lead" in h:
-        return "lead_qualification"
-    if "example" in h or "worked" in h:
-        return "example"
-    if "glossary" in h:
-        return "glossary"
-    if "site map" in h or "links" in h:
-        return "navigation"
+    if any(k in h for k in GUARDRAIL_KEYWORDS):   return "boundary"
+    if any(k in h for k in VOICE_KEYWORDS):        return "voice"
+    if any(k in h for k in ROUTING_KEYWORDS):      return "routing"
+    if any(k in h for k in DEFERRAL_KEYWORDS):     return "deferral_language"
+    if "faq" in h or "frequently" in h:            return "faq"
+    if any(k in h for k in ("service", "digital marketing", "bookkeeping", "automation", "talent", "branding", "website", "sales", "advisory")): return "service"
+    if any(k in h for k in ("pricing", "commercial", "bundle", "discount", "standalone")):  return "pricing"
+    if any(k in h for k in ("process", "phase", "growth plan")):    return "process"
+    if any(k in h for k in ("proof", "testimonial", "credibility", "published")): return "social_proof"
+    if "objection" in h:                            return "objection"
+    if any(k in h for k in ("who this", "good fit", "not a fit", "fit")): return "fit"
+    if any(k in h for k in ("positioning", "messaging", "why us", "trust", "compare")): return "positioning"
+    if any(k in h for k in ("snapshot", "company", "elevator")):    return "company_fact"
+    if any(k in h for k in ("qualification", "lead")):              return "lead_qualification"
+    if any(k in h for k in ("example", "worked")):                  return "example"
+    if "glossary" in h:                             return "glossary"
+    if any(k in h for k in ("site map", "links")):  return "navigation"
     return "guidance"
 
-# ── 4. Ingest ─────────────────────────────────────────────────────────────────
-print(f"Fetching page {PAGE_ID}...")
-blocks = get_blocks(PAGE_ID)
-print(f"  Got {len(blocks)} top-level blocks")
 
-chunks = chunk_blocks(blocks)
-print(f"  Split into {len(chunks)} chunks")
+# ── 5. Ingest ─────────────────────────────────────────────────────────────────
 
-store.reset_collection()
-ids, docs, metas = [], [], []
+def main() -> None:
+    rows = fetch_approved_rows()
+    print(f"Fetched {len(rows)} approved public rows from DB {DB_ID}")
 
-for i, chunk in enumerate(chunks):
-    chunk_type = classify_chunk(chunk["heading"], chunk["text"])
-    # Voice/persona chunks stay out of retrieval corpus (same as Layer C rule)
-    if chunk_type == "voice":
-        print(f"  [SKIP - voice] {chunk['heading']}")
-        continue
-    enriched = f"[{chunk_type} | {chunk['heading']}] {chunk['text']}"
-    ids.append(f"notion-chunk-{i}")
-    docs.append(enriched)
-    metas.append({
-        "heading": chunk["heading"],
-        "level":   chunk["level"],
-        "type":    chunk_type,
-        "source":  "notion-page",
-    })
-    print(f"  [{chunk_type}] {chunk['heading'][:60]}")
+    store.reset_collection()
+    ids, docs, metas = [], [], []
+    chunk_index = 0
 
-store.add(ids, docs, metas)
-print(f"\nDone. Ingested {len(docs)} chunks into ChromaDB.")
-print(f"Collection now holds: {store.count()} chunks")
+    for row in rows:
+        props       = row.get("properties", {})
+        row_id      = row["id"]
+
+        # Row title
+        title = ""
+        for v in props.values():
+            if v.get("type") == "title":
+                title = _plain(v)
+                break
+
+        # Skip pricing rows — bot defers to pricing page (KB guardrail 1)
+        contains_pricing = _plain(props.get("Contains pricing", {})) == "True"
+        if contains_pricing:
+            print(f"  [SKIP - pricing] {title}")
+            continue
+
+        # Fetch body blocks for this row's page
+        blocks = _get_blocks(row_id)
+        if not blocks:
+            print(f"  [SKIP - empty] {title}")
+            continue
+
+        chunks = chunk_blocks(blocks, title)
+        print(f"  [{len(chunks)} chunks] {title}")
+
+        for chunk in chunks:
+            chunk_type = classify_chunk(chunk["heading"], chunk["text"])
+
+            # Voice/persona chunks stay out of retrieval corpus
+            if chunk_type == "voice":
+                continue
+
+            enriched = f"[{chunk_type} | {chunk['heading']}] {chunk['text']}"
+            ids.append(f"notion-row-{row_id[:8]}-chunk-{chunk_index}")
+            docs.append(enriched)
+            metas.append({
+                "heading":  chunk["heading"],
+                "level":    chunk["level"],
+                "type":     chunk_type,
+                "source":   "notion-db",
+                "row_title": title,
+            })
+            chunk_index += 1
+
+    store.add(ids, docs, metas)
+    print(f"\nDone. Ingested {len(docs)} chunks from {len(rows)} rows into ChromaDB.")
+    print(f"Collection now holds: {store.count()} chunks")
+
+
+if __name__ == "__main__":
+    main()
