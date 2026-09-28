@@ -1,7 +1,7 @@
 """All data contracts for the SS AI Advisor chatbot.
 
-The bot routes founders to the right SS service and offers a free strategy call.
-Output is a ServiceRecommendation, not a generic snapshot.
+The bot has a natural, human conversation to understand a founder's situation and
+what they care about, then guides them to a free strategy call with a real person.
 """
 from __future__ import annotations
 
@@ -24,10 +24,11 @@ class ConvStage(str, Enum):
 
 
 # --------------------------------------------------------------------------- #
-# Intent (input rail — unchanged)
+# Intent (input rail)
 # --------------------------------------------------------------------------- #
 class Intent(str, Enum):
     ON_TOPIC = "on_topic"
+    GREETING = "greeting"
     ADVICE_LEGAL = "advice_legal"
     ADVICE_TAX = "advice_tax"
     ADVICE_FINANCIAL = "advice_financial"
@@ -50,7 +51,9 @@ DEFERRAL_INTENTS = {
     Intent.STATISTICS_BAIT,
 }
 
+# Intents that do not go to the advisor node — they get a fixed, cheap reply.
 NON_PROGRESSING_INTENTS = DEFERRAL_INTENTS | {
+    Intent.GREETING,
     Intent.INJECTION,
     Intent.OFF_TOPIC,
     Intent.ABUSE,
@@ -77,7 +80,7 @@ class FounderProfile(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Service recommendation (the output)
+# Service recommendation (used by the /recommendation path)
 # --------------------------------------------------------------------------- #
 class ServiceRecommendation(BaseModel):
     primary_service: str = Field(description="The single most relevant SS service for this founder.")
@@ -106,7 +109,8 @@ class GraphState(TypedDict, total=False):
     assistant_reply: str
     recommendation: dict
     recommendation_ready: bool
-    cta_offered: bool
+    cta_ready: bool
+    cta_offered: int
     grounding_flags: List[str]
 
 

@@ -1,12 +1,13 @@
 """LangGraph state machine for the SS AI Advisor.
 
 Flow per user turn:
-  classify intent → (refusal | advisor) → output check
+  classify intent -> (refusal | advisor) -> output check
 
-The advisor node:
-  - extracts founder profile
-  - if not covered: asks one follow-up
-  - if covered: gives one useful insight + natural CTA to book a call
+The advisor node runs a phased conversation:
+  discover  -> learn the founder's situation, no call offered yet
+  cta       -> once understood, offer the free call once, with the booking link
+  objection -> answer their concern, may re-offer the call once
+  close     -> they signalled readiness, hand over the booking link now
 """
 from __future__ import annotations
 
@@ -48,14 +49,8 @@ def handle_refusal(state: GraphState) -> dict:
 
 
 def _build_retrieval_query(profile, last_user_input: str) -> str:
-    """Build a richer retrieval query by combining the last user message with
-    the extracted bottleneck and service interest.
-
-    The original code used only profile.bottleneck or profile.service_interest
-    (a 2-5 word extracted phrase), which produces a weak cosine match against
-    the enriched 200-word chunks in Chroma. Including the full user message
-    gives BGE-small more semantic signal to anchor on.
-    """
+    """Combine the last user message with the extracted bottleneck and service
+    interest so BGE-small has enough semantic signal to match the KB chunks."""
     parts = []
     if last_user_input:
         parts.append(last_user_input.strip())
@@ -66,41 +61,52 @@ def _build_retrieval_query(profile, last_user_input: str) -> str:
     return " ".join(parts) if parts else (profile.bottleneck or "startup advisory")
 
 
+def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: int) -> str:
+    """Pick the conversation phase for this turn.
+
+    - A clear buying signal at any point jumps straight to close.
+    - Otherwise we stay in discover until we understand the bottleneck (and have had
+      at least two exchanges), or until three user turns have passed, then offer the
+      call once. After the call has been offered, further turns are objection handling.
+    """
+    if advisor.is_buying_signal(last_user_input):
+        return "close"
+    discovery_done = (user_turns >= 2 and bool(profile.bottleneck)) or user_turns >= 3
+    if cta_offered == 0 and not discovery_done:
+        return "discover"
+    if cta_offered == 0 and discovery_done:
+        return "cta"
+    return "objection"
+
+
 def run_advisor(state: GraphState) -> dict:
     messages = list(state.get("messages", []))
-    cta_count = state.get("cta_offered", 0) or 0
-    profile_dict = state.get("founder_profile", {})
+    cta_offered = int(state.get("cta_offered", 0) or 0)
+    last_user_input = state.get("last_user_input", "")
+    user_turns = sum(1 for m in messages if m.get("role") == "user")
 
-    from app.schemas import FounderProfile
-    profile = FounderProfile(**profile_dict) if profile_dict else advisor.extract_profile(messages)
+    # Re-read the founder from the whole conversation each turn.
+    profile = advisor.extract_profile(messages)
 
-    user_messages = [m for m in messages if m.get("role") == "user"]
-    if user_messages and not profile.covered:
-        profile.covered = True
+    phase = _decide_phase(profile, last_user_input, user_turns, cta_offered)
 
     from app.kb import store
-
-    # Build expanded query — full last message + extracted signals
-    last_user_input = state.get("last_user_input", "")
     retrieval_query = _build_retrieval_query(profile, last_user_input)
+    kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
 
-    kb_chunks = []
-    if retrieval_query:
-        kb_chunks = store.query(retrieval_query, top_k=10)
-
-    cta_ready = bool(len(user_messages) >= 1)
-    if cta_ready:
-        cta_count += 1
-
-    reply = advisor.generate_reply(messages, kb_chunks, cta_count)
+    reply = advisor.generate_reply(messages, kb_chunks, phase, profile)
     messages.append({"role": "assistant", "content": reply})
+
+    offered = phase in ("cta", "close")
+    new_cta_offered = cta_offered + (1 if offered else 0)
 
     return {
         "assistant_reply": reply,
         "messages": messages,
         "founder_profile": profile.model_dump(),
-        "cta_ready": cta_ready,
-        "cta_offered": cta_count,
+        "conv_stage": phase,
+        "cta_ready": offered,
+        "cta_offered": new_cta_offered,
     }
 
 
