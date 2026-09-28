@@ -4,6 +4,8 @@ Endpoints:
   POST /conversation/start    — disclosure + opening message
   POST /conversation/message  — send a message, get a reply with CTA when ready
   POST /capture               — submit lead (name + email)
+  POST /webhook/advisor-1     — adapter for the ss-advisor frontend (translates
+                                the frontend contract to the internal graph)
   GET  /health
 """
 from __future__ import annotations
@@ -41,6 +43,8 @@ DISCLOSURE = [
     "Conversations may be reviewed.",
     "General guidance, not professional advice.",
 ]
+
+BOOK_URL = "https://simplified-startup-ui.vercel.app/#book"
 
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, dict] = {}
@@ -125,6 +129,101 @@ def capture(req: CaptureRequest) -> CaptureResponse:
     )
 
 
+# ── Frontend adapter endpoint ─────────────────────────────────────────────────
+# The ss-advisor frontend sends:
+#   { type, state_token, message, quick_action_id, turn_client_id, client }
+# and expects back:
+#   { reply, state_token, cta, suggestions, state }
+#
+# This endpoint translates between those two contracts so the frontend works
+# without any changes. Session state is keyed by state_token (which the frontend
+# stores in sessionStorage and echoes back each turn).
+
+_ADAPTER_SESSIONS: dict[str, dict] = {}
+_ADAPTER_LOCK = threading.Lock()
+
+
+@app.post("/webhook/advisor-1")
+async def advisor_webhook(request: Request):
+    """Adapter for the ss-advisor frontend contract."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    # Analytics events — acknowledge and ignore
+    if body.get("type") == "event":
+        return {"ok": True}
+
+    message_text = body.get("message", "").strip()
+    if not message_text:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    state_token = body.get("state_token") or ""
+
+    with _ADAPTER_LOCK:
+        _check_global_cap()
+
+        # Restore or create session
+        if state_token and state_token in _ADAPTER_SESSIONS:
+            state = _ADAPTER_SESSIONS[state_token]
+        else:
+            # New session — generate a token and initialise state
+            state_token = uuid.uuid4().hex
+            state = {
+                "session_id": state_token,
+                "messages": [{"role": "assistant", "content": adv.OPENING}],
+                "intent": "",
+                "founder_profile": {},
+                "cta_ready": False,
+                "cta_offered": 0,
+                "grounding_flags": [],
+            }
+            _ADAPTER_SESSIONS[state_token] = state
+
+        user_turns = sum(1 for m in state["messages"] if m["role"] == "user")
+        if user_turns >= settings.max_messages_per_session:
+            return {
+                "reply": "We've covered a lot of ground. Book a free 30-minute strategy call to keep going with a real person: " + BOOK_URL,
+                "state_token": state_token,
+                "cta": [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}],
+                "suggestions": [],
+                "state": {"phase": "DONE", "handoff": True, "ask_contact": None, "closing": True},
+            }
+
+        state["messages"].append({"role": "user", "content": message_text})
+        state["last_user_input"] = message_text
+
+    # Run the graph outside the lock
+    result = GRAPH.invoke(state)
+
+    with _ADAPTER_LOCK:
+        _ADAPTER_SESSIONS[state_token] = result
+
+    reply = result.get("assistant_reply", "")
+    cta_ready = bool(result.get("cta_ready", False))
+
+    # Build CTA list for the frontend
+    cta = []
+    if cta_ready and BOOK_URL in reply:
+        # Strip the raw URL from the reply text and surface it as a proper CTA button
+        reply = reply.replace(BOOK_URL, "").strip().rstrip(":")
+        cta = [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}]
+    elif cta_ready:
+        cta = [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}]
+
+    return {
+        "reply": reply,
+        "state_token": state_token,
+        "cta": cta,
+        "suggestions": [],
+        "state": {
+            "phase": "CTA" if cta_ready else "DIAGNOSING",
+            "handoff": False,
+            "ask_contact": None,
+            "closing": False,
+        },
+    }
 
 
 # ── Notion webhook ────────────────────────────────────────────────────────────
@@ -133,14 +232,13 @@ import hashlib, hmac, threading as _threading
 _SYNC_LOCK = _threading.Lock()
 _SYNCING = False
 
+
 def _run_sync():
     global _SYNCING
     try:
         import sys, os
         sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
         import notion_page_sync
-        notion_page_sync.NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
-        notion_page_sync.PAGE_ID = os.environ.get("NOTION_PAGE_ID", "3d48ba072e19805a96d3f42b67c9a6e0")
         notion_page_sync.main()
     except Exception as e:
         import logging
@@ -153,21 +251,17 @@ def _run_sync():
 @app.post("/notion-webhook")
 async def notion_webhook(request: Request):
     """Notion calls this when the KB page is edited. Triggers a re-sync."""
-    from fastapi import Request
     global _SYNCING
 
-    # Notion sends a verification challenge on first setup
     body = await request.json()
     if "challenge" in body:
         return {"challenge": body["challenge"]}
 
-    # Deduplicate — only one sync at a time
     with _SYNC_LOCK:
         if _SYNCING:
             return {"status": "sync already in progress"}
         _SYNCING = True
 
-    # Run sync in background so webhook returns immediately
     t = _threading.Thread(target=_run_sync, daemon=True)
     t.start()
     return {"status": "sync started"}
@@ -176,6 +270,7 @@ async def notion_webhook(request: Request):
 @app.get("/sync-status")
 def sync_status():
     return {"syncing": _SYNCING}
+
 
 if __name__ == "__main__":
     import uvicorn
