@@ -86,8 +86,7 @@ def run_advisor(state: GraphState) -> dict:
 
     kb_chunks = []
     if retrieval_query:
-        # top_k=10 → reranker in store.query() prunes to settings.retrieval_top_k
-        kb_chunks = store.query(retrieval_query, top_k=10, rerank=True)
+        kb_chunks = store.query(retrieval_query, top_k=10)
 
     cta_ready = bool(len(user_messages) >= 1)
     if cta_ready:
