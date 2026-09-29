@@ -5,7 +5,7 @@ It has a natural, human conversation to understand the founder's situation and
 what they care about, then guides them to a free strategy call with a real person.
 
 Conversation phases (decided in graph.py, applied here):
-  discover  -> be curious, learn their situation, no call, no link
+  discover  -> be curious, learn their situation; returns reply + tappable chips; no call, no link
   cta       -> reflect their situation back, offer the call once, with the link
   objection -> answer their concern honestly, may re-offer the call once
   close     -> they signalled they're ready, give the booking link now
@@ -16,7 +16,7 @@ import re
 
 from app import llm
 from app.kb import store
-from app.schemas import FounderProfile, ServiceRecommendation
+from app.schemas import DiscoverTurn, FounderProfile, ServiceRecommendation
 
 # ── Opening message (shown by the frontend on load) ──────────────────────────
 OPENING = (
@@ -41,21 +41,31 @@ SERVICE_LINKS = {
 }
 
 # ── Buying-signal detection (deterministic) ──────────────────────────────────
-# A short affirmation, or an explicit request to book / get the link.
-_BUYING_RE = re.compile(
-    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|sounds good|"
-    r"let'?s do it|let'?s go|i'?m in|go ahead|please do|do it|"
-    r"sign me up|book it|perfect|great)\b"
-    r"|(send|share|drop|gimme|give me|grab me)\b.{0,20}\b(link|call|booking|slot|session)"
-    r"|how do i\b.{0,20}\b(get|book|start|sign|schedule|join)"
+# Strong: an explicit request to book / get the link — counts at any time.
+_STRONG_BUYING_RE = re.compile(
+    r"(send|share|drop|gimme|give me|grab me)\b.{0,20}\b(link|call|booking|slot|session)"
+    r"|how do i\b.{0,20}\b(book|schedule|sign up|get started|get the link)"
     r"|book (the|a|my)\b.{0,10}\b(call|link|slot|session)"
-    r"|schedule (the|a|my)\b.{0,10}\b(call|session|slot)",
+    r"|schedule (the|a|my)\b.{0,10}\b(call|session|slot)"
+    r"|sign me up|let'?s book|book a call|book the call",
+    re.IGNORECASE,
+)
+# Weak: a bare affirmation — only a buying signal AFTER the call has been offered,
+# otherwise it is just an answer to the bot's discovery question.
+_WEAK_AFFIRM_RE = re.compile(
+    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|sounds good|let'?s do it|"
+    r"let'?s go|i'?m in|go ahead|please do|do it|book it|perfect|great)\b",
     re.IGNORECASE,
 )
 
 
-def is_buying_signal(text: str) -> bool:
-    return bool(_BUYING_RE.search(text or ""))
+def is_buying_signal(text: str, cta_offered: int = 0) -> bool:
+    t = text or ""
+    if _STRONG_BUYING_RE.search(t):
+        return True
+    if cta_offered > 0 and _WEAK_AFFIRM_RE.search(t):
+        return True
+    return False
 
 
 # ── Profile extraction ────────────────────────────────────────────────────────
@@ -70,6 +80,9 @@ Extract:
   Sales and Lead Generation, AI Automation, Business and Startup Advisory,
   Talent and Staffing, Bookkeeping and Accounting (or null if unclear)
 - covered: leave false unless they have clearly stated a real bottleneck
+- ready_for_cta: true ONLY if the founder has shared enough for a strategy call to feel earned and specific —
+  meaning you know their stage AND their real bottleneck (and ideally what they've already tried). If you still
+  don't clearly know what they are struggling with, set this false.
 - follow_up: null (not used)
 
 Rules:
@@ -113,18 +126,24 @@ WHAT YOU DO NOT DO:
 STYLE:
 - Maximum 3 sentences. Warm and natural, never salesy or repetitive.
 - At most one question per message.
-- Never restart the conversation or repeat a point you already made. Build on what the founder has told you and
-  refer back to it in their own words.
+- Never restart the conversation, never re-introduce yourself, and never repeat a point you already made. Build
+  on what the founder has told you and refer back to it in their own words.
 - Timeline questions: SEO usually takes 3 to 6 months for meaningful movement; paid ads and a new website can
   move things in weeks. Say this plainly.
 - If asked whether you are human: say you are Simplified Startup's AI advisor and a real person can take it further.
 """
 
-_PHASE_DISCOVER = """CURRENT GOAL — GET TO KNOW THEM:
-Do NOT offer, mention, or hint at the strategy call yet, and do NOT include any link.
-React like a real person to what they just said, then ask ONE natural, specific question that helps you
-understand their stage, their biggest bottleneck, or what they are most eager to sort out. You are learning
-about them, not pitching. Keep it light and genuinely curious."""
+_PHASE_DISCOVER = """CURRENT GOAL — GET TO KNOW THEM (do not sell yet):
+Do NOT offer, mention, or hint at the strategy call, and do NOT include any link.
+React briefly and warmly to what they just said, then ask ONE natural, specific question that moves you toward
+understanding their stage, their biggest bottleneck, or what they have already tried.
+
+Return two things:
+- reply: your short reply, ending in that one question.
+- chips: 2 to 4 short options (2 to 4 words each) that are the most likely direct ANSWERS to the question you
+  just asked, so the founder can tap instead of type. Make them concrete and specific to your question.
+  Example: if you ask what they've tried, chips might be ["Google Ads", "Social media", "SEO", "Nothing yet"].
+  Do NOT include a "Something else" or "Other" option — the founder can always type their own answer."""
 
 _PHASE_CTA = f"""CURRENT GOAL — OFFER THE CALL, ONCE:
 You now understand their situation. In one or two sentences, reflect back the specific thing they care about
@@ -140,9 +159,11 @@ If it genuinely fits, you may offer the call one more time with this link: {BOOK
 repeat yourself, and never ask for a meeting time or their email."""
 
 _PHASE_CLOSE = f"""CURRENT GOAL — THEY'RE READY, HAND THEM THE LINK:
-The founder has signalled they want to take the next step. Warmly give them the booking link now: {BOOK_URL}
-Do NOT ask for their email, do NOT ask for a meeting time, and do NOT invent any other process (no "we'll send
-you a draft", no forms). One or two sentences, then the link."""
+The founder has signalled they want to take the next step. Reply in exactly this shape and nothing else:
+one short warm sentence acknowledging it, then the sentence "Book your free 30-minute strategy call here:"
+followed by this exact link: {BOOK_URL}
+Do NOT greet them, do NOT re-introduce yourself, do NOT ask a question, do NOT ask for their email or a meeting
+time, and do NOT invent any other process (no "we'll send you a draft", no forms)."""
 
 _PHASES = {
     "discover": _PHASE_DISCOVER,
@@ -165,19 +186,45 @@ def _profile_summary(profile: FounderProfile) -> str:
     return "; ".join(bits) if bits else "nothing concrete yet"
 
 
-def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profile: FounderProfile) -> str:
-    if not llm.settings.has_llm:
-        return "Tell me a bit about what you're building and where you're stuck."
-    transcript = llm.transcript_text(messages)
-    kb_text = "\n\n".join(kb_chunks) if kb_chunks else ""
-    system = _BASE_PERSONA + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
-    user = (
+def _user_content(profile: FounderProfile, kb_text: str, transcript: str) -> str:
+    return (
         f"WHAT YOU KNOW ABOUT THIS FOUNDER SO FAR: {_profile_summary(profile)}\n\n"
         f"REFERENCE INFORMATION about Simplified Startup (use only if relevant, never quote prices):\n"
         f"{kb_text}\n\n"
         f"CONVERSATION SO FAR:\n{transcript}"
     )
-    return llm.generate(system, user, temperature=0.4)
+
+
+def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profile: FounderProfile):
+    """Returns (reply_text, chips_list). chips are only produced in the discover phase."""
+    if not llm.settings.has_llm:
+        return ("Tell me a bit about what you're building and where you're stuck.", [])
+
+    transcript = llm.transcript_text(messages)
+    kb_text = "\n\n".join(kb_chunks) if kb_chunks else ""
+    user = _user_content(profile, kb_text, transcript)
+
+    if phase == "discover":
+        system = _BASE_PERSONA + "\n\n" + _PHASE_DISCOVER
+        try:
+            out = llm.structured(
+                system=system,
+                user=user,
+                response_model=DiscoverTurn,
+                temperature=0.4,
+            )
+            chips = [c.strip() for c in (out.chips or []) if c and c.strip()][:4]
+            reply = (out.reply or "").strip()
+            if reply:
+                return (reply, chips)
+        except Exception:
+            pass  # fall through to plain text if the structured call fails
+        text = llm.generate(system, user, temperature=0.4)
+        return (text, [])
+
+    system = _BASE_PERSONA + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
+    text = llm.generate(system, user, temperature=0.4)
+    return (text, [])
 
 
 # ── Recommendation assembly (used by the /recommendation path) ───────────────

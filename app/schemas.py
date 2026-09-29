@@ -16,11 +16,11 @@ from typing_extensions import TypedDict
 # Conversation state
 # --------------------------------------------------------------------------- #
 class ConvStage(str, Enum):
-    OPENING = "opening"        # gathering stage + bottleneck
-    CLARIFY = "clarify"        # one follow-up if needed
-    RECOMMEND = "recommend"    # service recommendation given
-    CTA = "cta"                # call offered
-    DONE = "done"              # lead captured
+    OPENING = "opening"
+    CLARIFY = "clarify"
+    RECOMMEND = "recommend"
+    CTA = "cta"
+    DONE = "done"
 
 
 # --------------------------------------------------------------------------- #
@@ -51,7 +51,6 @@ DEFERRAL_INTENTS = {
     Intent.STATISTICS_BAIT,
 }
 
-# Intents that do not go to the advisor node — they get a fixed, cheap reply.
 NON_PROGRESSING_INTENTS = DEFERRAL_INTENTS | {
     Intent.GREETING,
     Intent.INJECTION,
@@ -76,7 +75,24 @@ class FounderProfile(BaseModel):
     already_tried: Optional[str] = Field(default=None, description="What they have already tried")
     service_interest: Optional[str] = Field(default=None, description="Which SS service they seem to need")
     covered: bool = Field(default=False, description="True if we have enough to make a recommendation")
+    ready_for_cta: bool = Field(
+        default=False,
+        description="True only if the founder has shared enough (stage + real bottleneck) that offering the "
+                    "strategy call now would feel earned and specific.",
+    )
     follow_up: Optional[str] = Field(default=None, description="One follow-up question if not yet covered")
+
+
+# --------------------------------------------------------------------------- #
+# Discover-phase structured reply (reply text + tappable answer chips)
+# --------------------------------------------------------------------------- #
+class DiscoverTurn(BaseModel):
+    reply: str = Field(description="The advisor's short, warm reply, ending in exactly one question.")
+    chips: List[str] = Field(
+        default_factory=list,
+        description="2 to 4 short options (2 to 4 words each) that are likely direct answers to the question "
+                    "just asked, so the founder can tap instead of type.",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -107,6 +123,7 @@ class GraphState(TypedDict, total=False):
     intent: str
     founder_profile: dict
     assistant_reply: str
+    chips: List[str]
     recommendation: dict
     recommendation_ready: bool
     cta_ready: bool
@@ -136,6 +153,7 @@ class MessageResponse(BaseModel):
     message: str
     intent: str
     recommendation_ready: bool
+    chips: List[str] = Field(default_factory=list)
     grounding_flags: List[str] = Field(default_factory=list)
 
 

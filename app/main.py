@@ -2,10 +2,9 @@
 
 Endpoints:
   POST /conversation/start    — disclosure + opening message
-  POST /conversation/message  — send a message, get a reply with CTA when ready
+  POST /conversation/message  — send a message, get a reply (+ chips) with CTA when ready
   POST /capture               — submit lead (name + email)
-  POST /webhook/advisor-1     — adapter for the ss-advisor frontend (translates
-                                the frontend contract to the internal graph)
+  POST /webhook/advisor-1     — adapter for the ss-advisor frontend contract
   GET  /health
 """
 from __future__ import annotations
@@ -29,7 +28,7 @@ from app.schemas import (
 )
 from app import advisor as adv
 
-app = FastAPI(title="SS AI Advisor Engine", version="2.0.0")
+app = FastAPI(title="SS AI Advisor Engine", version="2.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,6 +84,7 @@ def start() -> StartResponse:
             "founder_profile": {},
             "cta_ready": False,
             "cta_offered": 0,
+            "chips": [],
             "grounding_flags": [],
         }
     return StartResponse(
@@ -114,6 +114,7 @@ def message(req: MessageRequest) -> MessageResponse:
         message=result.get("assistant_reply", ""),
         intent=result.get("intent", ""),
         recommendation_ready=bool(result.get("cta_ready", False)),
+        chips=result.get("chips", []) or [],
         grounding_flags=result.get("grounding_flags", []),
     )
 
@@ -129,29 +130,18 @@ def capture(req: CaptureRequest) -> CaptureResponse:
     )
 
 
-# ── Frontend adapter endpoint ─────────────────────────────────────────────────
-# The ss-advisor frontend sends:
-#   { type, state_token, message, quick_action_id, turn_client_id, client }
-# and expects back:
-#   { reply, state_token, cta, suggestions, state }
-#
-# This endpoint translates between those two contracts so the frontend works
-# without any changes. Session state is keyed by state_token (which the frontend
-# stores in sessionStorage and echoes back each turn).
-
+# ── Frontend adapter endpoint (kept for the SS_ADVISOR_CONFIG widget) ─────────
 _ADAPTER_SESSIONS: dict[str, dict] = {}
 _ADAPTER_LOCK = threading.Lock()
 
 
 @app.post("/webhook/advisor-1")
 async def advisor_webhook(request: Request):
-    """Adapter for the ss-advisor frontend contract."""
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    # Analytics events — acknowledge and ignore
     if body.get("type") == "event":
         return {"ok": True}
 
@@ -163,12 +153,9 @@ async def advisor_webhook(request: Request):
 
     with _ADAPTER_LOCK:
         _check_global_cap()
-
-        # Restore or create session
         if state_token and state_token in _ADAPTER_SESSIONS:
             state = _ADAPTER_SESSIONS[state_token]
         else:
-            # New session — generate a token and initialise state
             state_token = uuid.uuid4().hex
             state = {
                 "session_id": state_token,
@@ -177,6 +164,7 @@ async def advisor_webhook(request: Request):
                 "founder_profile": {},
                 "cta_ready": False,
                 "cta_offered": 0,
+                "chips": [],
                 "grounding_flags": [],
             }
             _ADAPTER_SESSIONS[state_token] = state
@@ -194,7 +182,6 @@ async def advisor_webhook(request: Request):
         state["messages"].append({"role": "user", "content": message_text})
         state["last_user_input"] = message_text
 
-    # Run the graph outside the lock
     result = GRAPH.invoke(state)
 
     with _ADAPTER_LOCK:
@@ -202,11 +189,10 @@ async def advisor_webhook(request: Request):
 
     reply = result.get("assistant_reply", "")
     cta_ready = bool(result.get("cta_ready", False))
+    chips = result.get("chips", []) or []
 
-    # Build CTA list for the frontend
     cta = []
     if cta_ready and BOOK_URL in reply:
-        # Strip the raw URL from the reply text and surface it as a proper CTA button
         reply = reply.replace(BOOK_URL, "").strip().rstrip(":")
         cta = [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}]
     elif cta_ready:
@@ -216,18 +202,18 @@ async def advisor_webhook(request: Request):
         "reply": reply,
         "state_token": state_token,
         "cta": cta,
-        "suggestions": [],
+        "suggestions": chips,
         "state": {
-            "phase": "CTA" if cta_ready else "DIAGNOSING",
+            "phase": result.get("conv_stage", "DIAGNOSING"),
             "handoff": False,
             "ask_contact": None,
-            "closing": False,
+            "closing": cta_ready,
         },
     }
 
 
 # ── Notion webhook ────────────────────────────────────────────────────────────
-import hashlib, hmac, threading as _threading
+import threading as _threading
 
 _SYNC_LOCK = _threading.Lock()
 _SYNCING = False
@@ -244,15 +230,12 @@ def _run_sync():
         import logging
         logging.getLogger("webhook").error("sync failed: %s", e)
     finally:
-        global _SYNCING
         _SYNCING = False
 
 
 @app.post("/notion-webhook")
 async def notion_webhook(request: Request):
-    """Notion calls this when the KB page is edited. Triggers a re-sync."""
     global _SYNCING
-
     body = await request.json()
     if "challenge" in body:
         return {"challenge": body["challenge"]}

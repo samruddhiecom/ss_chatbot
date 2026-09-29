@@ -4,7 +4,7 @@ Flow per user turn:
   classify intent -> (refusal | advisor) -> output check
 
 The advisor node runs a phased conversation:
-  discover  -> learn the founder's situation, no call offered yet
+  discover  -> learn the founder's situation (reply + tappable chips), no call yet
   cta       -> once understood, offer the free call once, with the booking link
   objection -> answer their concern, may re-offer the call once
   close     -> they signalled readiness, hand over the booking link now
@@ -20,6 +20,11 @@ from app.schemas import (
     GraphState,
     Intent,
 )
+
+# Never drag discovery past this many substantive user turns before offering the call.
+MAX_DISCOVERY_TURNS = 6
+# Don't offer the call before at least this many substantive turns, even if the model feels ready.
+MIN_DISCOVERY_TURNS = 2
 
 
 def classify_intent(state: GraphState) -> dict:
@@ -44,6 +49,7 @@ def handle_refusal(state: GraphState) -> dict:
     return {
         "assistant_reply": reply,
         "messages": messages,
+        "chips": [],
         "cta_ready": False,
     }
 
@@ -63,7 +69,7 @@ def _build_retrieval_query(profile, last_user_input: str) -> str:
 
 def _substantive_user_turns(messages) -> int:
     """Count user turns that carry real content, ignoring pure greetings so a
-    'hi' opener doesn't inflate the discovery count and trigger the CTA early."""
+    'hi' opener doesn't inflate the discovery count."""
     count = 0
     for m in messages:
         if m.get("role") != "user":
@@ -77,15 +83,16 @@ def _substantive_user_turns(messages) -> int:
 def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: int) -> str:
     """Pick the conversation phase for this turn.
 
-    - A clear buying signal at any point jumps straight to close.
-    - Otherwise we stay in discover until we understand the bottleneck (and have had
-      at least two substantive exchanges), or until three substantive user turns have
-      passed, then offer the call once. After the call has been offered, further turns
-      are objection handling.
+    - A clear buying signal jumps straight to close (bare affirmations only count
+      once the call has already been offered — see advisor.is_buying_signal).
+    - Otherwise the LLM's readiness judgment drives the CTA, gated by a minimum
+      number of substantive turns and a hard cap so it can neither fire too early
+      nor drag on forever.
     """
-    if advisor.is_buying_signal(last_user_input):
+    if advisor.is_buying_signal(last_user_input, cta_offered):
         return "close"
-    discovery_done = (user_turns >= 5 and bool(profile.bottleneck)) or user_turns >= 3
+    ready = bool(getattr(profile, "ready_for_cta", False))
+    discovery_done = (ready and user_turns >= MIN_DISCOVERY_TURNS) or user_turns >= MAX_DISCOVERY_TURNS
     if cta_offered == 0 and not discovery_done:
         return "discover"
     if cta_offered == 0 and discovery_done:
@@ -108,7 +115,7 @@ def run_advisor(state: GraphState) -> dict:
     retrieval_query = _build_retrieval_query(profile, last_user_input)
     kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
 
-    reply = advisor.generate_reply(messages, kb_chunks, phase, profile)
+    reply, chips = advisor.generate_reply(messages, kb_chunks, phase, profile)
     messages.append({"role": "assistant", "content": reply})
 
     offered = phase in ("cta", "close")
@@ -117,6 +124,7 @@ def run_advisor(state: GraphState) -> dict:
     return {
         "assistant_reply": reply,
         "messages": messages,
+        "chips": chips,
         "founder_profile": profile.model_dump(),
         "conv_stage": phase,
         "cta_ready": offered,

@@ -31,6 +31,14 @@ _GREETING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Bare affirmations / negations — these are ANSWERS to the bot's question mid-chat,
+# not greetings and not off-topic. Route them to the advisor so the flow continues.
+_AFFIRMATION_RE = re.compile(
+    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|nope|no|nah|maybe|"
+    r"correct|right|exactly|true|sounds good|got it|fine|alright)[\s!.,]*$",
+    re.IGNORECASE,
+)
+
 # Cost/pricing questions about SS services — always on_topic, never advice_financial.
 _PRICING_OBJECTION_RE = re.compile(
     r"\b(cost|costs|pricing|price|how much|what('s| is) (it|this) cost|"
@@ -55,9 +63,9 @@ Return exactly one intent.
 
 Intents:
 - on_topic: talking about their business, stage, bottleneck, Simplified Startup services, the cost/pricing
-  of Simplified Startup services, or raising an objection about using Simplified Startup (trust, comparison
-  with competitors, self-sufficiency, past bad experience).
-- greeting: a bare greeting or pleasantry with no business content ("hi", "hey there", "how's it going").
+  of Simplified Startup services, answering a question the bot just asked, or raising an objection about using
+  Simplified Startup (trust, comparison with competitors, self-sufficiency, past bad experience).
+- greeting: a bare greeting with no business content AND only as the very first message ("hi", "hey there").
 - advice_legal: asks for legal advice (entity choice, contracts, IP).
 - advice_tax: asks for tax advice (how much tax, deductions, tax structure).
 - advice_financial: asks whether to take a loan or a financing decision — NOT asking about Simplified Startup service pricing.
@@ -71,10 +79,10 @@ Intents:
 - existing_client: identifies as an existing Simplified Startup client with an account or billing issue.
 
 IMPORTANT:
+- A short reply like "yes", "sure", "nope", "that's right" in the middle of a conversation is the founder
+  ANSWERING the bot's question. That is on_topic, never greeting and never off_topic.
 - Questions about the cost or pricing of Simplified Startup's own services are on_topic, not advice_financial.
-- Objections like "why should I use you", "I got burned by an agency", "I can figure this out myself",
-  "what makes you better than Fiverr" are all on_topic — they are buying signals, not off-topic messages.
-- A bare "hi"/"hello" with nothing else is greeting, never off_topic.
+- Objections like "why should I use you", "I got burned by an agency", "I can figure this out myself" are on_topic.
 - Only classify as off_topic if the message has nothing to do with business or Simplified Startup services.
 
 Pick the single best match. Boundary-seeking outranks on_topic."""
@@ -89,24 +97,35 @@ def looks_like_greeting(text: str) -> bool:
     return bool(_GREETING_RE.match(text or ""))
 
 
+def looks_like_affirmation(text: str) -> bool:
+    """A bare yes/no style answer to the bot's question."""
+    return bool(_AFFIRMATION_RE.match(text or ""))
+
+
 def looks_like_pricing_objection(text: str) -> bool:
-    """Pricing/cost questions about SS services are always on_topic."""
     return bool(_PRICING_OBJECTION_RE.search(text or ""))
 
 
 def looks_like_objection(text: str) -> bool:
-    """Trust, comparison, and self-sufficiency objections are always on_topic."""
     return bool(_OBJECTION_RE.search(text or ""))
 
 
 def classify(messages: List[dict], user_input: str) -> Intent:
     if looks_like_injection(user_input):
         return Intent.INJECTION
-    if looks_like_greeting(user_input):
+
+    has_prior_assistant = any(m.get("role") == "assistant" for m in (messages or []))
+
+    # A bare "hi" is a greeting only as the opener; later on it is on_topic chatter.
+    if looks_like_greeting(user_input) and not has_prior_assistant:
         return Intent.GREETING
-    # Short-circuit: pricing and objection questions are always on_topic
+    # A bare affirmation ("yes"/"sure"/"nope") is an answer to the bot — always on_topic.
+    if looks_like_affirmation(user_input):
+        return Intent.ON_TOPIC
+    # Pricing and objection questions are always on_topic.
     if looks_like_pricing_objection(user_input) or looks_like_objection(user_input):
         return Intent.ON_TOPIC
+
     if not llm.settings.has_llm:
         return Intent.ON_TOPIC
     recent = llm.transcript_text(messages[-6:]) if messages else ""
