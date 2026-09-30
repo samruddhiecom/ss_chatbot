@@ -80,9 +80,11 @@ Extract:
   Sales and Lead Generation, AI Automation, Business and Startup Advisory,
   Talent and Staffing, Bookkeeping and Accounting (or null if unclear)
 - covered: leave false unless they have clearly stated a real bottleneck
-- ready_for_cta: true ONLY if the founder has shared enough for a strategy call to feel earned and specific —
-  meaning you know their stage AND their real bottleneck (and ideally what they've already tried). If you still
-  don't clearly know what they are struggling with, set this false.
+- ready_for_cta: true ONLY when you clearly know ALL THREE of: (1) the founder's stage, (2) their specific
+  bottleneck in their own words — not a chip tap or a one-line answer, but something that tells you what is
+  actually broken or missing in their business, AND (3) at least one of: what they have already tried, how
+  urgent this is, or what their current setup looks like. A single exchange is never enough. If any of these
+  three are missing or vague, set this false.
 - follow_up: null (not used)
 
 Rules:
