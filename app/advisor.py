@@ -204,9 +204,29 @@ def _profile_summary(profile: FounderProfile) -> str:
     return "; ".join(bits) if bits else "nothing concrete yet"
 
 
-def _user_content(profile: FounderProfile, kb_text: str, transcript: str) -> str:
+def _last_bot_question(messages: list[dict]) -> str:
+    """Return the last question the bot asked, so the reply can directly answer it."""
+    for m in reversed(messages):
+        if m.get("role") == "assistant":
+            text = m.get("content", "")
+            # grab the last sentence if it ends in a question mark
+            sentences = [s.strip() for s in text.replace("\n", " ").split(".") if s.strip()]
+            for s in reversed(sentences):
+                if s.endswith("?"):
+                    return s
+            return ""
+    return ""
+
+
+def _user_content(profile: FounderProfile, kb_text: str, transcript: str, messages: list[dict] = None) -> str:
+    profile_text = _profile_summary(profile)
+    last_q = _last_bot_question(messages or [])
+    context_block = f"WHAT YOU KNOW ABOUT THIS FOUNDER SO FAR: {profile_text}"
+    if last_q:
+        context_block += f"\nTHE LAST QUESTION YOU ASKED THEM: {last_q}"
+        context_block += "\nIMPORTANT: Your reply must directly respond to that question using what the founder just said. Never restart with a generic opener. Never ignore what they told you."
     return (
-        f"WHAT YOU KNOW ABOUT THIS FOUNDER SO FAR: {_profile_summary(profile)}\n\n"
+        f"{context_block}\n\n"
         f"REFERENCE INFORMATION about Simplified Startup (quote prices only from this text, never invent figures):\n"
         f"{kb_text}\n\n"
         f"CONVERSATION SO FAR:\n{transcript}"
@@ -220,7 +240,7 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
 
     transcript = llm.transcript_text(messages)
     kb_text = "\n\n".join(kb_chunks) if kb_chunks else ""
-    user = _user_content(profile, kb_text, transcript)
+    user = _user_content(profile, kb_text, transcript, messages)
 
     if phase == "discover":
         system = _BASE_PERSONA + "\n\n" + _PHASE_DISCOVER
