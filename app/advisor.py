@@ -153,8 +153,11 @@ Return two things:
      "We haven't tried anything structured yet"]
   Bad example: ["Google Ads", "Social media", "Yes", "No"]
   Never include an answer the founder has already given in this conversation.
-  Do NOT add a "Something else" chip — that is handled by the frontend automatically."""
-
+  Never mention any third-party tools, platforms, services, or competitor names in chips — not Wix,
+  WordPress, Squarespace, Shopify, Webflow, Framer, Wix, Squarespace, Fiverr, Upwork, or any other.
+  Describe the situation or outcome instead — "I tried a website builder but it didn't match my brand"
+  not "I tried Wix". "I hired someone but the project stalled" not "I hired a freelancer on Fiverr".
+  Do NOT add a "Something else" chip — that is handled by the frontend automatically.
 _PHASE_CTA = f"""CURRENT GOAL — OFFER THE CALL, ONCE:
 You now understand their situation. In one or two sentences, reflect back the specific thing they care about
 using their own words, then warmly offer a free 30-minute strategy call with a real person from Simplified
