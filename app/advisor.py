@@ -80,11 +80,9 @@ Extract:
   Sales and Lead Generation, AI Automation, Business and Startup Advisory,
   Talent and Staffing, Bookkeeping and Accounting (or null if unclear)
 - covered: leave false unless they have clearly stated a real bottleneck
-- ready_for_cta: true ONLY when you clearly know ALL THREE of: (1) the founder's stage, (2) their specific
-  bottleneck in their own words — not a chip tap or a one-line answer, but something that tells you what is
-  actually broken or missing in their business, AND (3) at least one of: what they have already tried, how
-  urgent this is, or what their current setup looks like. A single exchange is never enough. If any of these
-  three are missing or vague, set this false.
+- ready_for_cta: true ONLY if the founder has shared enough for a strategy call to feel earned and specific —
+  meaning you know their stage AND their real bottleneck (and ideally what they've already tried). If you still
+  don't clearly know what they are struggling with, set this false.
 - follow_up: null (not used)
 
 Rules:
@@ -142,10 +140,20 @@ understanding their stage, their biggest bottleneck, or what they have already t
 
 Return two things:
 - reply: your short reply, ending in that one question.
-- chips: 2 to 4 short options (2 to 4 words each) that are the most likely direct ANSWERS to the question you
-  just asked, so the founder can tap instead of type. Make them concrete and specific to your question.
-  Example: if you ask what they've tried, chips might be ["Google Ads", "Social media", "SEO", "Nothing yet"].
-  Do NOT include a "Something else" or "Other" option — the founder can always type their own answer."""
+- chips: full conversational sentences written in the founder's own voice, as if they are answering the
+  question you just asked. Each chip must be 8 to 12 words, concrete and specific, never binary yes/no,
+  never one or two words. The number of chips should fit the question:
+    - "what have you tried" type → 4 to 5 chips covering the most likely real answers
+    - "what stage are you at" or "what is your goal" type → 3 chips
+    - "what specifically is broken" or a narrow follow-up → 2 to 3 chips
+  Write them as the founder would say it, not as labels. Good example for "what have you tried":
+    ["We ran Google Ads but burned through the budget fast",
+     "Mostly Instagram posts but they don't convert",
+     "We tried email campaigns with low click-through",
+     "We haven't tried anything structured yet"]
+  Bad example: ["Google Ads", "Social media", "Yes", "No"]
+  Never include an answer the founder has already given in this conversation.
+  Do NOT add a "Something else" chip — that is handled by the frontend automatically."""
 
 _PHASE_CTA = f"""CURRENT GOAL — OFFER THE CALL, ONCE:
 You now understand their situation. In one or two sentences, reflect back the specific thing they care about

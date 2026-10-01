@@ -90,8 +90,12 @@ class DiscoverTurn(BaseModel):
     reply: str = Field(description="The advisor's short, warm reply, ending in exactly one question.")
     chips: List[str] = Field(
         default_factory=list,
-        description="2 to 4 short options (2 to 4 words each) that are likely direct answers to the question "
-                    "just asked, so the founder can tap instead of type.",
+        description="2 to 5 full conversational sentences (8 to 12 words each) written in the founder's own "
+                    "voice as if they are answering the question just asked. Each chip must be concrete and "
+                    "specific — never binary yes/no, never one or two words, never generic. The number of "
+                    "chips should match the question: questions about what they've tried → 4-5 chips; "
+                    "questions about stage or goal → 3 chips; questions about a specific problem → 2-3 chips. "
+                    "Never include an answer the founder has already given in this conversation.",
     )
 
 
