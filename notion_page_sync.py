@@ -64,7 +64,7 @@ def fetch_approved_rows() -> list:
     filter_obj = {
         "and": [
             {"property": "Visibility", "select": {"equals": "Public"}},
-            {"property": "Status", "status": {"equals": "Approved"}},
+            {"property": "Status", "select": {"equals": "Approved"}},
         ]
     }
     while True:
