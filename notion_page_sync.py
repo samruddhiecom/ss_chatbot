@@ -1,13 +1,13 @@
 """
-notion_page_sync.py — syncs the SS Advisor Knowledge Base (Notion DATABASE) into ChromaDB.
+notion_page_sync.py -- syncs the SS Advisor Knowledge Base (Notion DATABASE) into ChromaDB.
 
 Changes vs original:
   1. Reads from the Notion DATABASE (NOTION_DB_ID env var), not a single page.
   2. Enforces Visibility=Public AND Status=Approved filter.
   3. Reads row body blocks via blocks.children.list.
   4. Heading-based chunking with sentence-level overlap.
-  5. Pricing rows ARE now indexed (Option B) — bot can surface KB-approved prices
-     when directly asked. Chunks are tagged type='pricing' so they route correctly.
+  5. Pricing rows ARE now indexed (Option B) -- tagged as type='pricing'.
+  6. notion-client v3 API compatible (no **kwargs unpacking).
 
 Usage:
     python notion_page_sync.py            # manual run
@@ -36,7 +36,7 @@ from app.kb import store
 nc = Client(auth=TOKEN)
 
 
-# ── 1. Query the database — approved public rows only ────────────────────────
+# -- 1. Query the database -- approved public rows only ----------------------
 
 def _plain(prop: dict) -> str:
     if not prop:
@@ -57,24 +57,30 @@ def _plain(prop: dict) -> str:
     return ""
 
 
-def fetch_approved_rows() -> list[dict]:
+def fetch_approved_rows() -> list:
     """Return all DB rows where Visibility=Public AND Status=Approved."""
     rows = []
     cursor = None
+    filter_obj = {
+        "and": [
+            {"property": "Visibility", "select": {"equals": "Public"}},
+            {"property": "Status", "status": {"equals": "Approved"}},
+        ]
+    }
     while True:
-        kwargs = {
-            "database_id": DB_ID,
-            "page_size": 100,
-            "filter": {
-                "and": [
-                    {"property": "Visibility", "select": {"equals": "Public"}},
-                    {"property": "Status", "status": {"equals": "Approved"}},
-                ]
-            },
-        }
         if cursor:
-            kwargs["start_cursor"] = cursor
-        res = nc.databases.query(**kwargs)
+            res = nc.databases.query(
+                database_id=DB_ID,
+                page_size=100,
+                filter=filter_obj,
+                start_cursor=cursor,
+            )
+        else:
+            res = nc.databases.query(
+                database_id=DB_ID,
+                page_size=100,
+                filter=filter_obj,
+            )
         rows.extend(res.get("results", []))
         if not res.get("has_more"):
             break
@@ -82,16 +88,23 @@ def fetch_approved_rows() -> list[dict]:
     return rows
 
 
-# ── 2. Fetch page body blocks for a row ──────────────────────────────────────
+# -- 2. Fetch page body blocks for a row -------------------------------------
 
-def _get_blocks(block_id: str) -> list[dict]:
+def _get_blocks(block_id: str) -> list:
     results = []
     cursor = None
     while True:
-        kwargs = {"block_id": block_id, "page_size": 100}
         if cursor:
-            kwargs["start_cursor"] = cursor
-        res = nc.blocks.children.list(**kwargs)
+            res = nc.blocks.children.list(
+                block_id=block_id,
+                page_size=100,
+                start_cursor=cursor,
+            )
+        else:
+            res = nc.blocks.children.list(
+                block_id=block_id,
+                page_size=100,
+            )
         results.extend(res.get("results", []))
         if not res.get("has_more"):
             break
@@ -108,24 +121,24 @@ def _block_text(block: dict) -> str:
     return ""
 
 
-# ── 3. Chunking with sentence-level overlap ───────────────────────────────────
+# -- 3. Chunking with sentence-level overlap ---------------------------------
 
 HEADING_TYPES = {"heading_1", "heading_2", "heading_3"}
 SENT_RE = re.compile(r'(?<=[.!?])\s+')
 
 
-def _split_sentences(text: str) -> list[str]:
+def _split_sentences(text: str) -> list:
     return [s.strip() for s in SENT_RE.split(text) if s.strip()]
 
 
-def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
+def chunk_blocks(blocks: list, title: str) -> list:
     chunks = []
     current_heading = title
     current_level = "heading_1"
-    current_lines: list[str] = []
-    carry: str = ""
+    current_lines = []
+    carry = ""
 
-    def flush(next_heading: str = "") -> None:
+    def flush():
         nonlocal carry
         text = "\n".join(current_lines).strip()
         if text:
@@ -153,7 +166,7 @@ def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
     return chunks
 
 
-# ── 4. Category classification ────────────────────────────────────────────────
+# -- 4. Category classification ----------------------------------------------
 
 GUARDRAIL_KEYWORDS = {"guardrail", "never do", "never", "must not", "do not"}
 VOICE_KEYWORDS = {"persona", "style rule", "voice", "tone", "advisor", "opening line"}
@@ -203,7 +216,7 @@ def classify_chunk(heading: str, text: str, contains_pricing: bool = False) -> s
     return "guidance"
 
 
-# ── 5. Ingest ─────────────────────────────────────────────────────────────────
+# -- 5. Ingest ---------------------------------------------------------------
 
 def main() -> None:
     rows = fetch_approved_rows()
@@ -223,7 +236,6 @@ def main() -> None:
                 title = _plain(v)
                 break
 
-        # Option B: pricing rows are now indexed, tagged as type='pricing'
         contains_pricing = _plain(props.get("Contains pricing", {})) == "True"
 
         blocks = _get_blocks(row_id)
@@ -232,14 +244,14 @@ def main() -> None:
             continue
 
         chunks = chunk_blocks(blocks, title)
-        print(f"  [{len(chunks)} chunks] {title}")
+        tag = "[pricing]" if contains_pricing else ""
+        print(f"  [{len(chunks)} chunks]{tag} {title}")
 
         for chunk in chunks:
             chunk_type = classify_chunk(
                 chunk["heading"], chunk["text"], contains_pricing=contains_pricing
             )
 
-            # Voice/persona chunks stay out of retrieval corpus
             if chunk_type == "voice":
                 continue
 
