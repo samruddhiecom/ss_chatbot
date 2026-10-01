@@ -20,7 +20,7 @@ fastembed
 flashrank
 
 # Notion sync
-notion-client
+notion-client==2.2.1
 
 # Utilities + tests
 python-dotenv
