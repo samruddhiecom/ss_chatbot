@@ -11,6 +11,8 @@ The advisor node runs a phased conversation:
 """
 from __future__ import annotations
 
+import re
+
 from langgraph.graph import END, START, StateGraph
 
 from app import advisor, llm
@@ -21,10 +23,31 @@ from app.schemas import (
     Intent,
 )
 
-# Never drag discovery past this many substantive user turns before offering the call.
 MAX_DISCOVERY_TURNS = 6
-# Don't offer the call before at least this many substantive turns, even if the model feels ready.
 MIN_DISCOVERY_TURNS = 2
+
+# Detect service and pricing questions for KB routing
+_SERVICE_Q_RE = re.compile(
+    r"\b(what services|what do you offer|what can you help|what do you do|"
+    r"what areas|what kind of (work|help|services)|services (do you|you) (offer|provide|have)|"
+    r"tell me (about|more about) your services|list (your|the) services)\b",
+    re.IGNORECASE,
+)
+_PRICING_Q_RE = re.compile(
+    r"\b(how much|what('s| is) (the |your )?(cost|price|pricing|rate)|"
+    r"pricing|price|cost|rates|packages|plans|fees|monthly fee|retainer|"
+    r"what do you charge|how are you priced)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_kb_route(text: str):
+    """Return chunk_type to route to, or None for normal cosine retrieval."""
+    if _PRICING_Q_RE.search(text or ""):
+        return "pricing"
+    if _SERVICE_Q_RE.search(text or ""):
+        return "service"
+    return None
 
 
 def classify_intent(state: GraphState) -> dict:
@@ -55,8 +78,6 @@ def handle_refusal(state: GraphState) -> dict:
 
 
 def _build_retrieval_query(profile, last_user_input: str) -> str:
-    """Combine the last user message with the extracted bottleneck and service
-    interest so BGE-small has enough semantic signal to match the KB chunks."""
     parts = []
     if last_user_input:
         parts.append(last_user_input.strip())
@@ -68,8 +89,6 @@ def _build_retrieval_query(profile, last_user_input: str) -> str:
 
 
 def _substantive_user_turns(messages) -> int:
-    """Count user turns that carry real content, ignoring pure greetings so a
-    'hi' opener doesn't inflate the discovery count."""
     count = 0
     for m in messages:
         if m.get("role") != "user":
@@ -81,14 +100,6 @@ def _substantive_user_turns(messages) -> int:
 
 
 def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: int) -> str:
-    """Pick the conversation phase for this turn.
-
-    - A clear buying signal jumps straight to close (bare affirmations only count
-      once the call has already been offered — see advisor.is_buying_signal).
-    - Otherwise the LLM's readiness judgment drives the CTA, gated by a minimum
-      number of substantive turns and a hard cap so it can neither fire too early
-      nor drag on forever.
-    """
     if advisor.is_buying_signal(last_user_input, cta_offered):
         return "close"
     ready = bool(getattr(profile, "ready_for_cta", False))
@@ -106,14 +117,27 @@ def run_advisor(state: GraphState) -> dict:
     last_user_input = state.get("last_user_input", "")
     user_turns = _substantive_user_turns(messages)
 
-    # Re-read the founder from the whole conversation each turn.
     profile = advisor.extract_profile(messages)
-
     phase = _decide_phase(profile, last_user_input, user_turns, cta_offered)
 
     from app.kb import store
-    retrieval_query = _build_retrieval_query(profile, last_user_input)
-    kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
+
+    # Intent-based KB routing: service/pricing questions pull from the right chunk type
+    # directly instead of relying purely on cosine similarity on a small corpus.
+    kb_route = _detect_kb_route(last_user_input)
+    if kb_route:
+        typed_chunks = store.query_by_type(kb_route, top_k=6)
+        retrieval_query = _build_retrieval_query(profile, last_user_input)
+        cosine_chunks = store.query(retrieval_query, top_k=4)
+        seen = set()
+        kb_chunks = []
+        for c in typed_chunks + cosine_chunks:
+            if c not in seen:
+                seen.add(c)
+                kb_chunks.append(c)
+    else:
+        retrieval_query = _build_retrieval_query(profile, last_user_input)
+        kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
 
     reply, chips = advisor.generate_reply(messages, kb_chunks, phase, profile)
     messages.append({"role": "assistant", "content": reply})

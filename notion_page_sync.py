@@ -3,23 +3,19 @@ notion_page_sync.py — syncs the SS Advisor Knowledge Base (Notion DATABASE) in
 
 Changes vs original:
   1. Reads from the Notion DATABASE (NOTION_DB_ID env var), not a single page.
-     The live KB is a database with ~22 rows, each a knowledge article.
-  2. Enforces Visibility=Public AND Status=Approved filter — only approved rows
-     are indexed. Unapproved drafts never reach retrieval.
-  3. Reads row body blocks (the actual page content inside each DB row) via
-     blocks.children.list, not just the row's property fields.
-  4. Heading-based chunking now includes sentence-level overlap (1-sentence
-     carry-over) so context at chunk boundaries is preserved.
-  5. Skips rows with "Contains pricing" = True (price data stays off the index;
-     bot defers to the pricing page per KB guardrail 1).
+  2. Enforces Visibility=Public AND Status=Approved filter.
+  3. Reads row body blocks via blocks.children.list.
+  4. Heading-based chunking with sentence-level overlap.
+  5. Pricing rows ARE now indexed (Option B) — bot can surface KB-approved prices
+     when directly asked. Chunks are tagged type='pricing' so they route correctly.
 
 Usage:
     python notion_page_sync.py            # manual run
     Called automatically via /notion-webhook endpoint in main.py
 
 Environment variables required:
-    NOTION_TOKEN   — Notion integration token
-    NOTION_DB_ID   — Database ID (e74924e630fa46e89791c6eb44604c42)
+    NOTION_TOKEN   -- Notion integration token
+    NOTION_DB_ID   -- Database ID (e74924e630fa46e89791c6eb44604c42)
 """
 import os
 import re
@@ -31,8 +27,8 @@ load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-TOKEN    = os.environ["NOTION_TOKEN"]
-DB_ID    = os.environ.get("NOTION_DB_ID", "e74924e630fa46e89791c6eb44604c42")
+TOKEN = os.environ["NOTION_TOKEN"]
+DB_ID = os.environ.get("NOTION_DB_ID", "e74924e630fa46e89791c6eb44604c42")
 
 from notion_client import Client
 from app.kb import store
@@ -72,7 +68,7 @@ def fetch_approved_rows() -> list[dict]:
             "filter": {
                 "and": [
                     {"property": "Visibility", "select": {"equals": "Public"}},
-                    {"property": "Status",     "status": {"equals": "Approved"}},
+                    {"property": "Status", "status": {"equals": "Approved"}},
                 ]
             },
         }
@@ -123,16 +119,11 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
-    """Split blocks into chunks at every heading boundary.
-
-    One sentence from the previous chunk is carried over into the next chunk
-    so that retrieval doesn't lose context at boundaries.
-    """
     chunks = []
-    current_heading = title  # use the row title as the implicit first heading
-    current_level   = "heading_1"
+    current_heading = title
+    current_level = "heading_1"
     current_lines: list[str] = []
-    carry: str = ""  # last sentence of the previous chunk
+    carry: str = ""
 
     def flush(next_heading: str = "") -> None:
         nonlocal carry
@@ -144,12 +135,8 @@ def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
                 "level": current_level,
                 "text": full_text,
             })
-            # carry the last sentence into the next chunk
             sentences = _split_sentences(text)
             carry = sentences[-1] if sentences else ""
-        else:
-            # empty chunk — don't update carry
-            pass
 
     for b in blocks:
         btype = b.get("type", "")
@@ -157,8 +144,8 @@ def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
         if btype in HEADING_TYPES:
             flush()
             current_heading = bt or current_heading
-            current_level   = btype
-            current_lines   = []
+            current_level = btype
+            current_lines = []
         elif bt:
             current_lines.append(bt)
 
@@ -169,30 +156,50 @@ def chunk_blocks(blocks: list[dict], title: str) -> list[dict]:
 # ── 4. Category classification ────────────────────────────────────────────────
 
 GUARDRAIL_KEYWORDS = {"guardrail", "never do", "never", "must not", "do not"}
-VOICE_KEYWORDS     = {"persona", "style rule", "voice", "tone", "advisor", "opening line"}
-ROUTING_KEYWORDS   = {"routing", "escalate", "handoff", "intent", "cta"}
-DEFERRAL_KEYWORDS  = {"legal", "tax", "accounting", "investment", "visa", "medical"}
+VOICE_KEYWORDS = {"persona", "style rule", "voice", "tone", "advisor", "opening line"}
+ROUTING_KEYWORDS = {"routing", "escalate", "handoff", "intent", "cta"}
+DEFERRAL_KEYWORDS = {"legal", "tax", "accounting", "investment", "visa", "medical"}
 
 
-def classify_chunk(heading: str, text: str) -> str:
+def classify_chunk(heading: str, text: str, contains_pricing: bool = False) -> str:
+    if contains_pricing:
+        return "pricing"
     h = heading.lower()
-    if any(k in h for k in GUARDRAIL_KEYWORDS):   return "boundary"
-    if any(k in h for k in VOICE_KEYWORDS):        return "voice"
-    if any(k in h for k in ROUTING_KEYWORDS):      return "routing"
-    if any(k in h for k in DEFERRAL_KEYWORDS):     return "deferral_language"
-    if "faq" in h or "frequently" in h:            return "faq"
-    if any(k in h for k in ("service", "digital marketing", "bookkeeping", "automation", "talent", "branding", "website", "sales", "advisory")): return "service"
-    if any(k in h for k in ("pricing", "commercial", "bundle", "discount", "standalone")):  return "pricing"
-    if any(k in h for k in ("process", "phase", "growth plan")):    return "process"
-    if any(k in h for k in ("proof", "testimonial", "credibility", "published")): return "social_proof"
-    if "objection" in h:                            return "objection"
-    if any(k in h for k in ("who this", "good fit", "not a fit", "fit")): return "fit"
-    if any(k in h for k in ("positioning", "messaging", "why us", "trust", "compare")): return "positioning"
-    if any(k in h for k in ("snapshot", "company", "elevator")):    return "company_fact"
-    if any(k in h for k in ("qualification", "lead")):              return "lead_qualification"
-    if any(k in h for k in ("example", "worked")):                  return "example"
-    if "glossary" in h:                             return "glossary"
-    if any(k in h for k in ("site map", "links")):  return "navigation"
+    if any(k in h for k in GUARDRAIL_KEYWORDS):
+        return "boundary"
+    if any(k in h for k in VOICE_KEYWORDS):
+        return "voice"
+    if any(k in h for k in ROUTING_KEYWORDS):
+        return "routing"
+    if any(k in h for k in DEFERRAL_KEYWORDS):
+        return "deferral_language"
+    if "faq" in h or "frequently" in h:
+        return "faq"
+    if any(k in h for k in ("service", "digital marketing", "bookkeeping", "automation",
+                              "talent", "branding", "website", "sales", "advisory")):
+        return "service"
+    if any(k in h for k in ("pricing", "commercial", "bundle", "discount", "standalone")):
+        return "pricing"
+    if any(k in h for k in ("process", "phase", "growth plan")):
+        return "process"
+    if any(k in h for k in ("proof", "testimonial", "credibility", "published")):
+        return "social_proof"
+    if "objection" in h:
+        return "objection"
+    if any(k in h for k in ("who this", "good fit", "not a fit", "fit")):
+        return "fit"
+    if any(k in h for k in ("positioning", "messaging", "why us", "trust", "compare")):
+        return "positioning"
+    if any(k in h for k in ("snapshot", "company", "elevator")):
+        return "company_fact"
+    if any(k in h for k in ("qualification", "lead")):
+        return "lead_qualification"
+    if any(k in h for k in ("example", "worked")):
+        return "example"
+    if "glossary" in h:
+        return "glossary"
+    if any(k in h for k in ("site map", "links")):
+        return "navigation"
     return "guidance"
 
 
@@ -207,23 +214,18 @@ def main() -> None:
     chunk_index = 0
 
     for row in rows:
-        props       = row.get("properties", {})
-        row_id      = row["id"]
+        props = row.get("properties", {})
+        row_id = row["id"]
 
-        # Row title
         title = ""
         for v in props.values():
             if v.get("type") == "title":
                 title = _plain(v)
                 break
 
-        # Skip pricing rows — bot defers to pricing page (KB guardrail 1)
+        # Option B: pricing rows are now indexed, tagged as type='pricing'
         contains_pricing = _plain(props.get("Contains pricing", {})) == "True"
-        if contains_pricing:
-            print(f"  [SKIP - pricing] {title}")
-            continue
 
-        # Fetch body blocks for this row's page
         blocks = _get_blocks(row_id)
         if not blocks:
             print(f"  [SKIP - empty] {title}")
@@ -233,7 +235,9 @@ def main() -> None:
         print(f"  [{len(chunks)} chunks] {title}")
 
         for chunk in chunks:
-            chunk_type = classify_chunk(chunk["heading"], chunk["text"])
+            chunk_type = classify_chunk(
+                chunk["heading"], chunk["text"], contains_pricing=contains_pricing
+            )
 
             # Voice/persona chunks stay out of retrieval corpus
             if chunk_type == "voice":
@@ -243,10 +247,10 @@ def main() -> None:
             ids.append(f"notion-row-{row_id[:8]}-chunk-{chunk_index}")
             docs.append(enriched)
             metas.append({
-                "heading":  chunk["heading"],
-                "level":    chunk["level"],
-                "type":     chunk_type,
-                "source":   "notion-db",
+                "heading": chunk["heading"],
+                "level": chunk["level"],
+                "type": chunk_type,
+                "source": "notion-db",
                 "row_title": title,
             })
             chunk_index += 1
