@@ -26,7 +26,6 @@ from app.schemas import (
 MAX_DISCOVERY_TURNS = 6
 MIN_DISCOVERY_TURNS = 2
 
-# Detect service and pricing questions for KB routing
 _SERVICE_Q_RE = re.compile(
     r"\b(what services|what do you offer|what can you help|what do you do|"
     r"what areas|what kind of (work|help|services)|services (do you|you) (offer|provide|have)|"
@@ -42,7 +41,6 @@ _PRICING_Q_RE = re.compile(
 
 
 def _detect_kb_route(text: str):
-    """Return chunk_type to route to, or None for normal cosine retrieval."""
     if _PRICING_Q_RE.search(text or ""):
         return "pricing"
     if _SERVICE_Q_RE.search(text or ""):
@@ -122,8 +120,6 @@ def run_advisor(state: GraphState) -> dict:
 
     from app.kb import store
 
-    # Intent-based KB routing: service/pricing questions pull from the right chunk type
-    # directly instead of relying purely on cosine similarity on a small corpus.
     kb_route = _detect_kb_route(last_user_input)
     if kb_route:
         typed_chunks = store.query_by_type(kb_route, top_k=6)
@@ -140,6 +136,25 @@ def run_advisor(state: GraphState) -> dict:
         kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
 
     reply, chips = advisor.generate_reply(messages, kb_chunks, phase, profile)
+
+    # Store the kb_text for use in the output rail regeneration closure
+    kb_text = "\n\n".join(kb_chunks) if kb_chunks else ""
+
+    # Output rail with regeneration — runs before appending to messages
+    sources = llm.transcript_text(messages)
+
+    def _regen(correction_prompt: str) -> str:
+        """Regenerate the reply with a correction prompt using the same phase/profile context."""
+        system = (
+            "You are the Simplified Startup AI Advisor. "
+            "Rewrite the reply below fixing only the flagged issues. "
+            "Keep the same intent, phase, and conversational tone.\n\n"
+            + correction_prompt
+        )
+        return llm.generate(system, f"KB context:\n{kb_text}\n\nTranscript:\n{sources}", temperature=0.3)
+
+    reply, flags = output_rail.regenerate_if_flagged(reply, sources, _regen)
+
     messages.append({"role": "assistant", "content": reply})
 
     offered = phase in ("cta", "close")
@@ -153,15 +168,15 @@ def run_advisor(state: GraphState) -> dict:
         "conv_stage": phase,
         "cta_ready": offered,
         "cta_offered": new_cta_offered,
+        "grounding_flags": flags,
     }
 
 
 def output_check(state: GraphState) -> dict:
-    reply = state.get("assistant_reply", "")
-    sources = llm.transcript_text(state.get("messages", []))
-    _, flags = output_rail.verify_turn(reply, sources)
+    # Flags already computed in run_advisor during regeneration.
+    # This node is kept for future extensibility (e.g. LLM claims check).
     existing = list(state.get("grounding_flags", []))
-    return {"grounding_flags": existing + flags}
+    return {"grounding_flags": existing}
 
 
 def route_after_intent(state: GraphState) -> str:
