@@ -1,14 +1,18 @@
 """FastAPI engine for the SS AI Advisor.
 
 Endpoints:
-  POST /conversation/start    — disclosure + opening message
-  POST /conversation/message  — send a message, get a reply (+ chips) with CTA when ready
-  POST /capture               — submit lead (name + email)
-  POST /webhook/advisor-1     — adapter for the ss-advisor frontend contract
+  POST /conversation/start    -- disclosure + opening message
+  POST /conversation/message  -- send a message, get a reply (+ chips) with CTA when ready
+  POST /capture               -- submit lead (name + email)
+  POST /webhook/advisor-1     -- adapter for the ss-advisor frontend contract
   GET  /health
+  GET  /sync-status
 """
 from __future__ import annotations
 
+import logging
+import os
+import sys
 import threading
 import uuid
 from datetime import date
@@ -28,7 +32,10 @@ from app.schemas import (
 )
 from app import advisor as adv
 
-app = FastAPI(title="SS AI Advisor Engine", version="2.1.0")
+logger = logging.getLogger("ss_advisor")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+app = FastAPI(title="SS AI Advisor Engine", version="2.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -130,7 +137,7 @@ def capture(req: CaptureRequest) -> CaptureResponse:
     )
 
 
-# ── Frontend adapter endpoint (kept for the SS_ADVISOR_CONFIG widget) ─────────
+# ── Frontend adapter endpoint ─────────────────────────────────────────────────
 _ADAPTER_SESSIONS: dict[str, dict] = {}
 _ADAPTER_LOCK = threading.Lock()
 
@@ -212,29 +219,59 @@ async def advisor_webhook(request: Request):
     }
 
 
-# ── Notion webhook ────────────────────────────────────────────────────────────
-import threading as _threading
-
-_SYNC_LOCK = _threading.Lock()
+# ── Notion sync ───────────────────────────────────────────────────────────────
+_SYNC_LOCK = threading.Lock()
 _SYNCING = False
+SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
 
 
-def _run_sync():
+def _run_sync(label: str = "scheduled") -> None:
     global _SYNCING
+    logger.info("Notion KB sync started (%s)", label)
     try:
-        import sys, os
-        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         import notion_page_sync
         notion_page_sync.main()
+        logger.info("Notion KB sync completed (%s)", label)
     except Exception as e:
-        import logging
-        logging.getLogger("webhook").error("sync failed: %s", e)
+        logger.error("Notion KB sync failed (%s): %s", label, e)
     finally:
         _SYNCING = False
 
 
+def _schedule_sync() -> None:
+    """Re-schedule the next sync after SYNC_INTERVAL_SECONDS."""
+    import importlib
+    # Re-import in case the module was hot-reloaded
+    t = threading.Timer(SYNC_INTERVAL_SECONDS, _scheduled_sync)
+    t.daemon = True
+    t.start()
+
+
+def _scheduled_sync() -> None:
+    global _SYNCING
+    with _SYNC_LOCK:
+        if _SYNCING:
+            logger.info("Scheduled sync skipped — sync already in progress")
+            _schedule_sync()
+            return
+        _SYNCING = True
+    threading.Thread(target=lambda: [_run_sync("scheduled"), _schedule_sync()], daemon=True).start()
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Kick off the first scheduled sync and set the 30-minute polling cadence."""
+    logger.info("App started. Scheduling first Notion KB sync in 60 seconds.")
+    # Delay the first sync so the embedder has time to warm up
+    t = threading.Timer(60, _scheduled_sync)
+    t.daemon = True
+    t.start()
+
+
 @app.post("/notion-webhook")
 async def notion_webhook(request: Request):
+    """Manual trigger — also used for testing. Fires the sync immediately."""
     global _SYNCING
     body = await request.json()
     if "challenge" in body:
@@ -245,8 +282,7 @@ async def notion_webhook(request: Request):
             return {"status": "sync already in progress"}
         _SYNCING = True
 
-    t = _threading.Thread(target=_run_sync, daemon=True)
-    t.start()
+    threading.Thread(target=_run_sync, args=("webhook",), daemon=True).start()
     return {"status": "sync started"}
 
 
