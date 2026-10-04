@@ -42,7 +42,9 @@ _STRONG_BUYING_RE = re.compile(
     r"|how do i\b.{0,20}\b(book|schedule|sign up|get started|get the link)"
     r"|book (the|a|my)\b.{0,10}\b(call|link|slot|session)"
     r"|schedule (the|a|my)\b.{0,10}\b(call|session|slot)"
-    r"|sign me up|let'?s book|book a call|book the call",
+    r"|sign me up|let'?s book|book a call|book the call"
+    r"|just book|book us in|we need help now|ready to start|let's get started"
+    r"|i'?m ready|we'?re ready|i want to (start|begin|get started|move forward)",
     re.IGNORECASE,
 )
 _WEAK_AFFIRM_RE = re.compile(
