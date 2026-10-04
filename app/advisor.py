@@ -175,8 +175,10 @@ _PHASE_CTA = (
 _PHASE_OBJECTION = (
     "CURRENT GOAL -- ANSWER THEM STRAIGHT:\n"
     "You have already offered the call once. Answer their question or concern honestly and briefly, using only what\n"
-    "you actually know about Simplified Startup. Do not give advice or how-to. For pricing or cost questions, point\n"
-    "them to " + PRICING_URL + "\n"
+    "you actually know about Simplified Startup. Do not give advice or how-to.\n"
+    "On pricing: if they ask what something costs, share the KB-approved prices from the reference information\n"
+    "provided -- only quote figures that actually appear in the reference information, never estimate or invent.\n"
+    "If no pricing is in the reference information, point them to: " + PRICING_URL + "\n"
     "If it genuinely fits, you may offer the call one more time with this link: " + BOOK_URL + " -- but do not push,\n"
     "do not repeat yourself, and never ask for a meeting time or their email."
 )
@@ -216,7 +218,6 @@ def _last_bot_question(messages: list[dict]) -> str:
     for m in reversed(messages):
         if m.get("role") == "assistant":
             text = m.get("content", "")
-            # grab the last sentence if it ends in a question mark
             sentences = [s.strip() for s in text.replace("\n", " ").split(".") if s.strip()]
             for s in reversed(sentences):
                 if s.endswith("?"):
