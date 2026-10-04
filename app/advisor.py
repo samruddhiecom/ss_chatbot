@@ -1,4 +1,4 @@
-"""SS AI Advisor — conversation logic.
+"""SS AI Advisor -- conversation logic.
 
 The bot is NOT an advisor. It does not give advice, tips, how-to, or diagnoses.
 It has a natural, human conversation to understand the founder's situation and
@@ -51,6 +51,9 @@ _WEAK_AFFIRM_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Any URL in the close phase reply gets replaced with the correct BOOK_URL.
+_URL_RE = re.compile(r"https?://\S+")
+
 
 def is_buying_signal(text: str, cta_offered: int = 0) -> bool:
     t = text or ""
@@ -59,6 +62,13 @@ def is_buying_signal(text: str, cta_offered: int = 0) -> bool:
     if cta_offered > 0 and _WEAK_AFFIRM_RE.search(t):
         return True
     return False
+
+
+def _fix_close_url(text: str) -> str:
+    """Replace any URL in a close-phase reply with the correct booking link.
+    The LLM sometimes generates a different URL from training data -- this
+    ensures the correct link always appears regardless of what the model writes."""
+    return _URL_RE.sub(BOOK_URL, text)
 
 
 _PROFILE_SYSTEM = """You extract a founder's profile from a conversation for the Simplified Startup AI Advisor.
@@ -270,6 +280,11 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
 
     system = _BASE_PERSONA + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
     text = llm.generate(system, user, temperature=0.4)
+
+    # For the close phase, replace any URL the model generated with the correct booking link.
+    if phase == "close":
+        text = _fix_close_url(text)
+
     return (text, [])
 
 
