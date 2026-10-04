@@ -222,7 +222,7 @@ async def advisor_webhook(request: Request):
 # ── Notion sync ───────────────────────────────────────────────────────────────
 _SYNC_LOCK = threading.Lock()
 _SYNCING = False
-SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
+SYNC_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours — effectively manual-only via /notion-webhook
 
 
 def _run_sync(label: str = "scheduled") -> None:
