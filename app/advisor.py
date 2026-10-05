@@ -53,7 +53,6 @@ _WEAK_AFFIRM_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Any URL in the close phase reply gets replaced with the correct BOOK_URL.
 _URL_RE = re.compile(r"https?://\S+")
 
 
@@ -66,11 +65,13 @@ def is_buying_signal(text: str, cta_offered: int = 0) -> bool:
     return False
 
 
-def _fix_close_url(text: str) -> str:
-    """Replace any URL in a close-phase reply with the correct booking link.
-    The LLM sometimes generates a different URL from training data -- this
-    ensures the correct link always appears regardless of what the model writes."""
-    return _URL_RE.sub(BOOK_URL, text)
+def _strip_urls(text: str) -> str:
+    """Remove all URLs from text. Used in close phase so the LLM cannot
+    inject a wrong link -- the frontend CTA card handles the booking link."""
+    text = _URL_RE.sub("", text)
+    text = re.sub(r'\s{2,}', ' ', text)
+    text = re.sub(r'\s+([.,:])', r'\1', text)
+    return text.strip(": ").strip()
 
 
 _PROFILE_SYSTEM = """You extract a founder's profile from a conversation for the Simplified Startup AI Advisor.
@@ -200,9 +201,9 @@ _PHASE_CLOSE = (
     "The founder has signalled they want to take the next step. Reply in exactly this shape and nothing else:\n"
     "one short warm sentence acknowledging it, then this exact sentence and nothing after it:\n"
     "'Book your free 30-minute strategy call — you'll leave with a written plan either way.'\n"
-    "Do NOT include any URL or link in your reply — the booking link is added automatically by the system.\n"
+    "Do NOT include any URL or link in your reply -- the booking link is added automatically by the system.\n"
     "Do NOT greet them, do NOT re-introduce yourself, do NOT ask a question, do NOT ask for their email or a meeting\n"
-    "time, and do NOT invent any other process (no 'we'll send you a draft', no forms)."
+    "time, and do NOT invent any other process (no 'we'll send you a draft', no 'within a week', no forms)."
 )
 
 _PHASES = {
@@ -227,7 +228,6 @@ def _profile_summary(profile: FounderProfile) -> str:
 
 
 def _last_bot_question(messages: list[dict]) -> str:
-    """Return the last question the bot asked, so the reply can directly answer it."""
     for m in reversed(messages):
         if m.get("role") == "assistant":
             text = m.get("content", "")
@@ -284,9 +284,10 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
     system = _BASE_PERSONA + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
     text = llm.generate(system, user, temperature=0.4)
 
-    # For the close phase, replace any URL the model generated with the correct booking link.
+    # Close phase: strip all URLs deterministically so the LLM cannot inject a wrong link.
+    # The frontend CTA card always adds the correct booking link.
     if phase == "close":
-        text = _fix_close_url(text)
+        text = _strip_urls(text)
 
     return (text, [])
 
