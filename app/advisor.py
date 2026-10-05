@@ -198,8 +198,9 @@ _PHASE_OBJECTION = (
 _PHASE_CLOSE = (
     "CURRENT GOAL -- THEY'RE READY, HAND THEM THE LINK:\n"
     "The founder has signalled they want to take the next step. Reply in exactly this shape and nothing else:\n"
-    "one short warm sentence acknowledging it, then the sentence 'Book your free 30-minute strategy call here:'\n"
-    "followed by this exact link: " + BOOK_URL + "\n"
+    "one short warm sentence acknowledging it, then this exact sentence and nothing after it:\n"
+    "'Book your free 30-minute strategy call — you'll leave with a written plan either way.'\n"
+    "Do NOT include any URL or link in your reply — the booking link is added automatically by the system.\n"
     "Do NOT greet them, do NOT re-introduce yourself, do NOT ask a question, do NOT ask for their email or a meeting\n"
     "time, and do NOT invent any other process (no 'we'll send you a draft', no forms)."
 )
