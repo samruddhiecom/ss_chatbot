@@ -198,11 +198,14 @@ async def advisor_webhook(request: Request):
     cta_ready = bool(result.get("cta_ready", False))
     chips = result.get("chips", []) or []
 
+    # Strip ANY URL from close/cta replies — the CTA card carries the correct link.
+    import re as _re
+    _URL_RE = _re.compile(r"https?://\S+")
+    if cta_ready:
+        reply = _URL_RE.sub("", reply).strip().rstrip(":").strip()
+
     cta = []
-    if cta_ready and BOOK_URL in reply:
-        reply = reply.replace(BOOK_URL, "").strip().rstrip(":")
-        cta = [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}]
-    elif cta_ready:
+    if cta_ready:
         cta = [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}]
 
     return {
@@ -222,7 +225,7 @@ async def advisor_webhook(request: Request):
 # ── Notion sync ───────────────────────────────────────────────────────────────
 _SYNC_LOCK = threading.Lock()
 _SYNCING = False
-SYNC_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours — effectively manual-only via /notion-webhook
+SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
 
 
 def _run_sync(label: str = "scheduled") -> None:
