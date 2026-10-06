@@ -137,6 +137,22 @@ def capture(req: CaptureRequest) -> CaptureResponse:
     )
 
 
+# ── Lead capture endpoint ────────────────────────────────────────────────────
+from pydantic import BaseModel as _BaseModel
+
+class LeadRequest(_BaseModel):
+    name: str
+    email: str
+    mobile: str
+    session_id: str = ""
+
+@app.post("/lead")
+def lead(req: LeadRequest):
+    from app.lead_capture import save_lead
+    ok = save_lead(req.name, req.email, req.mobile, req.session_id)
+    return {"saved": ok}
+
+
 # ── Frontend adapter endpoint ─────────────────────────────────────────────────
 _ADAPTER_SESSIONS: dict[str, dict] = {}
 _ADAPTER_LOCK = threading.Lock()
