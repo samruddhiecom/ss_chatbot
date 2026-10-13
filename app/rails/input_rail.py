@@ -66,6 +66,29 @@ _HARDSHIP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Founder is unsure what they need / what to tackle — route to soft close.
+_UNSURE_RE = re.compile(
+    r"\b(don'?t know what to (tackle|do|start|prioritize)|"
+    r"not sure what (i|we) (need|should|want)|no idea where to (start|begin)|"
+    r"don'?t know where to (start|begin)|"
+    r"not sure where to (start|begin)|"
+    r"everything feels (overwhelming|too much)|"
+    r"too much to (do|handle)|where do i even (start|begin)|"
+    r"not sure what i actually need|unsure what to do)\b",
+    re.IGNORECASE,
+)
+
+# "How good are you / what makes you different" — route to success stories reply.
+_SUCCESS_STORIES_RE = re.compile(
+    r"\b(how good (is|are) (your|the) (service|services|team|work)|"
+    r"any (case stud(y|ies)|success stor(y|ies)|past (clients|work|results))|"
+    r"show me (results|proof|case stud(y|ies)|success stor(y|ies))|"
+    r"have you (helped|worked with) (other|anyone|anybody)|"
+    r"who have you (helped|worked with)|"
+    r"testimonials|client reviews|portfolio)\b",
+    re.IGNORECASE,
+)
+
 _CLASSIFIER_SYSTEM = """You classify a founder's message to the Simplified Startup AI Advisor chatbot.
 Return exactly one intent.
 
@@ -121,6 +144,16 @@ def looks_like_hardship(text: str) -> bool:
     return bool(_HARDSHIP_RE.search(text or ""))
 
 
+def looks_like_unsure(text: str) -> bool:
+    """Founder is unsure what to tackle — route to soft close offering the call."""
+    return bool(_UNSURE_RE.search(text or ""))
+
+
+def looks_like_success_stories(text: str) -> bool:
+    """Founder is asking for proof / case studies / past results."""
+    return bool(_SUCCESS_STORIES_RE.search(text or ""))
+
+
 def classify(messages: List[dict], user_input: str) -> Intent:
     if looks_like_injection(user_input):
         return Intent.INJECTION
@@ -133,6 +166,10 @@ def classify(messages: List[dict], user_input: str) -> Intent:
         return Intent.ON_TOPIC
     if looks_like_hardship(user_input):
         return Intent.HARDSHIP
+    if looks_like_unsure(user_input):
+        return Intent.ON_TOPIC
+    if looks_like_success_stories(user_input):
+        return Intent.ON_TOPIC
     if looks_like_pricing_objection(user_input) or looks_like_objection(user_input):
         return Intent.ON_TOPIC
 
@@ -211,9 +248,10 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "What are you building and where are you stuck?"
         ),
         Intent.HARDSHIP: (
-            "That sounds genuinely hard, and I\u2019m sorry. "
+            "That sounds genuinely hard, and I hear you. "
             "I\u2019m a planning assistant so for anything personal please reach someone you trust. "
-            "If it\u2019s business-related, the Simplified Startup team is at simplifiedstartupllc@gmail.com and happy to talk."
+            "If it\u2019s the business weighing on you, a quick call with a real person from Simplified Startup "
+            "often helps \u2014 you can also email simplifiedstartupllc@gmail.com."
         ),
         Intent.EXISTING_CLIENT: (
             "This one\u2019s better with a person. "

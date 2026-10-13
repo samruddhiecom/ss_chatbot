@@ -5,10 +5,12 @@ It has a natural, human conversation to understand the founder's situation and
 what they care about, then guides them to a free strategy call with a real person.
 
 Conversation phases (decided in graph.py, applied here):
-  discover  -> be curious, learn their situation; returns reply + tappable chips; no call, no link
-  cta       -> reflect their situation back, offer the call once, with the link
-  objection -> answer their concern honestly, may re-offer the call once
-  close     -> they signalled they're ready, give the booking link now
+  discover    -> be curious, learn their situation; returns reply + tappable chips; no call, no link
+  cta         -> reflect their situation back, offer the call once, with the link
+  soft_close  -> founder is unsure; offer the call AND a path to explore the main website
+  objection   -> answer their concern honestly, may re-offer the call once
+  close       -> they signalled they're ready, give the booking link now
+  success     -> founder asked for proof / case studies; point to success stories page
 """
 from __future__ import annotations
 
@@ -25,6 +27,8 @@ OPENING = (
 
 BOOK_URL = "https://simplified-startup-ui.vercel.app/#book"
 PRICING_URL = "https://simplified-startup-ui.vercel.app/pricing"
+WEBSITE_URL = "https://simplified-startup-ui.vercel.app"
+SUCCESS_STORIES_URL = "https://simplified-startup-ui.vercel.app/success-stories"
 
 SERVICE_LINKS = {
     "Digital Marketing": "/digital-marketing",
@@ -53,6 +57,17 @@ _WEAK_AFFIRM_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Loss / hardship signals that call for a one-line of practical empathy BEFORE the normal reply.
+_EMPATHY_RE = re.compile(
+    r"\b(lost (money|savings|customers|clients|my job)|"
+    r"wasted (money|time|months|years)|"
+    r"burned (through|out)|going under|about to shut|failing|"
+    r"out of (runway|money|cash|budget)|"
+    r"invest(ed|ing) a lot|put in everything|"
+    r"stressful|stressed|overwhelmed|anxious about|worried about|scared)\b",
+    re.IGNORECASE,
+)
+
 _URL_RE = re.compile(r"https?://\S+")
 
 
@@ -63,6 +78,11 @@ def is_buying_signal(text: str, cta_offered: int = 0) -> bool:
     if cta_offered > 0 and _WEAK_AFFIRM_RE.search(t):
         return True
     return False
+
+
+def needs_empathy(text: str) -> bool:
+    """Detect practical hardship (financial loss, stress) that warrants a one-liner of empathy."""
+    return bool(_EMPATHY_RE.search(text or ""))
 
 
 def _strip_urls(text: str) -> str:
@@ -143,6 +163,13 @@ _BASE_PERSONA = (
     "- If asked whether you are human: say you are Simplified Startup's AI advisor and a real person can take it further."
 )
 
+_EMPATHY_RIDER = (
+    "\n\nEMPATHY NOTE: The founder just mentioned financial loss, burnout, or real stress. Start your reply "
+    "with ONE short sentence that acknowledges what they are going through in human terms before anything "
+    "else. Do not be clinical. Do not say 'I understand'. Say something a real person would say to a friend "
+    "in that spot. Then continue with the rest of your reply."
+)
+
 _PHASE_DISCOVER = (
     "CURRENT GOAL -- GET TO KNOW THEM (do not sell yet):\n"
     "Do NOT offer, mention, or hint at the strategy call, and do NOT include any link.\n"
@@ -153,24 +180,11 @@ _PHASE_DISCOVER = (
     "  What have you already tried? How urgent is this? What does your current setup look like?\n"
     "- NEVER ask about: what features they want built, what content they want to create, what platform\n"
     "  they want to use, what their website should look like, what their logo should be, or any other\n"
-    "  product or execution detail. You are not a requirements gatherer. You are learning why they need\n"
-    "  help and what is broken, not what they want to build.\n\n"
-    "Return two things:\n"
-    "- reply: your short reply, ending in that one question.\n"
-    "- chips: full conversational sentences written in the founder's own voice, as if they are answering the\n"
-    "  question you just asked. Each chip must be 8 to 12 words, concrete and specific, never binary yes/no,\n"
-    "  never one or two words. The number of chips should fit the question:\n"
-    "    - 'what have you tried' type: 4 to 5 chips covering the most likely real answers\n"
-    "    - 'what stage are you at' or 'what is your goal' type: 3 chips\n"
-    "    - 'what specifically is broken' or a narrow follow-up: 2 to 3 chips\n"
-    "  Write them as the founder would say it, not as labels. Good example for 'what have you tried':\n"
-    "    ['We ran ads but burned through the budget fast',\n"
-    "     'Mostly social posts but they do not convert to sales',\n"
-    "     'We tried email campaigns but got very low click-through',\n"
-    "     'We have not tried anything structured yet']\n"
-    "  Bad example: ['Google Ads', 'Social media', 'Yes', 'No']\n"
-    "  Never include an answer the founder has already given in this conversation.\n"
-    "  Never mention any third-party tools, platforms, services, or competitor names in chips.\n"
+    "  specific tactical detail. You are not scoping the project. You are learning the situation.\n\n"
+    "CHIPS (2 to 4 short tappable answer options) must each be a VALID ANSWER to the question you just asked,\n"
+    "in the founder's own voice. If you ask 'what stage?' chips are stages. If you ask 'what's the bottleneck?'\n"
+    "chips are plain-English problem statements. Never put tactics, platforms, or feature ideas in chips.\n"
+    "Never name a competitor product -- not even as an example of what the founder tried.\n"
     "  Never name Wix, WordPress, Squarespace, Shopify, Webflow, Framer, Fiverr, Upwork, or any other.\n"
     "  Describe the situation or outcome instead -- 'I tried a website builder but it did not match my brand'\n"
     "  not 'I tried Wix'. 'I hired someone but the project stalled' not 'I hired a freelancer on Fiverr'.\n"
@@ -185,13 +199,28 @@ _PHASE_CTA = (
     "Do NOT ask for a meeting time. Do NOT ask for their email. Just make the offer feel natural and share the link."
 )
 
+_PHASE_SOFT_CLOSE = (
+    "CURRENT GOAL -- THEY ARE UNSURE, GIVE THEM TWO LOW-PRESSURE PATHS:\n"
+    "The founder has signalled they do not know what to tackle, or they are not ready to click a booking link yet.\n"
+    "Reply in two short sentences:\n"
+    "1. Acknowledge warmly that it is okay to not have it all mapped out yet.\n"
+    "2. Say they can either explore what Simplified Startup actually does on the website, OR hop on a free\n"
+    "   30-minute strategy call with a real person who will help them figure out the next step.\n"
+    "Do NOT include any URL in the text -- the booking link and the explore link are added by the system as buttons.\n"
+    "Do NOT push. Do NOT ask for their email. Do NOT ask a question at the end."
+)
+
 _PHASE_OBJECTION = (
     "CURRENT GOAL -- ANSWER THEM STRAIGHT:\n"
     "You have already offered the call once. Answer their question or concern honestly and briefly, using only what\n"
     "you actually know about Simplified Startup. Do not give advice or how-to.\n"
     "On pricing: if they ask what something costs, share the KB-approved prices from the reference information\n"
     "provided -- only quote figures that actually appear in the reference information, never estimate or invent.\n"
+    "If pricing is in the reference information, quote the specific figure AND include the pricing page link so\n"
+    "they can see the full breakdown: " + PRICING_URL + "\n"
     "If no pricing is in the reference information, point them to: " + PRICING_URL + "\n"
+    "On trust / past bad experience: acknowledge what happened in one short sentence before answering. Do not\n"
+    "lecture, do not defend, do not oversell.\n"
     "If it genuinely fits, you may offer the call one more time with this link: " + BOOK_URL + " -- but do not push,\n"
     "do not repeat yourself, and never ask for a meeting time or their email."
 )
@@ -206,11 +235,25 @@ _PHASE_CLOSE = (
     "time, and do NOT invent any other process (no 'we'll send you a draft', no 'within a week', no forms)."
 )
 
+_PHASE_SUCCESS = (
+    "CURRENT GOAL -- POINT THEM TO PROOF:\n"
+    "The founder asked for case studies, past results, or how good the service actually is.\n"
+    "Reply in two short sentences:\n"
+    "1. Say briefly that Simplified Startup has helped founders across different stages -- without inventing\n"
+    "   specific numbers, names, or outcomes.\n"
+    "2. Point them to the success stories page for the real examples, and offer a quick call if they want to\n"
+    "   talk through whether it fits their situation.\n"
+    "Do NOT include any URL in the text -- the success-stories link and the booking link are added by the system\n"
+    "as buttons. Do NOT invent client names, revenue numbers, or percentages."
+)
+
 _PHASES = {
     "discover": _PHASE_DISCOVER,
     "cta": _PHASE_CTA,
+    "soft_close": _PHASE_SOFT_CLOSE,
     "objection": _PHASE_OBJECTION,
     "close": _PHASE_CLOSE,
+    "success": _PHASE_SUCCESS,
 }
 
 
@@ -246,6 +289,9 @@ def _user_content(profile: FounderProfile, kb_text: str, transcript: str, messag
     if last_q:
         context_block += f"\nTHE LAST QUESTION YOU ASKED THEM: {last_q}"
         context_block += "\nIMPORTANT: Your reply must directly respond to that question using what the founder just said. Never restart with a generic opener. Never ignore what they told you."
+    # Trim KB text aggressively for latency when it is huge; keep most relevant chunks only.
+    if kb_text and len(kb_text) > 4000:
+        kb_text = kb_text[:4000] + "\n[...kb truncated for latency...]"
     return (
         f"{context_block}\n\n"
         f"REFERENCE INFORMATION about Simplified Startup (quote prices only from this text, never invent figures):\n"
@@ -263,8 +309,18 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
     kb_text = "\n\n".join(kb_chunks) if kb_chunks else ""
     user = _user_content(profile, kb_text, transcript, messages)
 
+    # Inject empathy rider if the latest user message signals practical hardship.
+    last_user_msg = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            last_user_msg = m.get("content", "")
+            break
+    persona = _BASE_PERSONA
+    if needs_empathy(last_user_msg):
+        persona = persona + _EMPATHY_RIDER
+
     if phase == "discover":
-        system = _BASE_PERSONA + "\n\n" + _PHASE_DISCOVER
+        system = persona + "\n\n" + _PHASE_DISCOVER
         try:
             out = llm.structured(
                 system=system,
@@ -281,12 +337,11 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
         text = llm.generate(system, user, temperature=0.4)
         return (text, [])
 
-    system = _BASE_PERSONA + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
+    system = persona + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
     text = llm.generate(system, user, temperature=0.4)
 
-    # Close phase: strip all URLs deterministically so the LLM cannot inject a wrong link.
-    # The frontend CTA card always adds the correct booking link.
-    if phase == "close":
+    # Close / soft_close / success phases: strip ALL URLs deterministically. Buttons carry the links.
+    if phase in ("close", "soft_close", "success"):
         text = _strip_urls(text)
 
     return (text, [])

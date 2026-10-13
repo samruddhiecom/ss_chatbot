@@ -1,0 +1,212 @@
+[
+  {
+    "id": "q01",
+    "category": "General",
+    "question": "What is Simplified Startup?",
+    "ground_truth": "An integrated team that covers the parts of a business most founders don't have in-house: strategy, brand, website, marketing, sales, AI automation, talent, and bookkeeping, delivered as one engagement with a single point of contact.",
+    "source": "KB s1, s11.01"
+  },
+  {
+    "id": "q02",
+    "category": "General",
+    "question": "What makes Simplified Startup different from other agencies?",
+    "ground_truth": "Four things: one senior team with a single point of contact, pricing published before any sales call, work and accounts you own from day one, and reports that lead with the number that changes your bank balance.",
+    "source": "KB s2, s11.01"
+  },
+  {
+    "id": "q03",
+    "category": "General",
+    "question": "What size or stage of business do you work with?",
+    "ground_truth": "Pre-seed and bootstrapped founders through early-revenue small businesses: people building something real who are missing a few pieces.",
+    "source": "KB s4, s11.01"
+  },
+  {
+    "id": "q04",
+    "category": "Services",
+    "question": "What services does Simplified Startup offer?",
+    "ground_truth": "Eight services: Digital Marketing, Website Development, Branding & Growth, Sales & Lead Generation, AI Automation, Business & Startup Advisory, Talent & Staffing, and Bookkeeping & Accounting.",
+    "source": "KB s5, s11.02"
+  },
+  {
+    "id": "q05",
+    "category": "Services",
+    "question": "Do I have to buy a package, or can I take just one service?",
+    "ground_truth": "Just one service is fine. You can take a single service, a two-or-three service growth bundle, or the full stack. Bundles cost less per service, but bundling is never required.",
+    "source": "KB s6, s11.02"
+  },
+  {
+    "id": "q06",
+    "category": "Services",
+    "question": "Do you build websites, and who owns the result?",
+    "ground_truth": "Yes: fast, modern, conversion-focused websites and landing pages, built to be measured. You own the site and the code.",
+    "source": "KB s5.2, s11.02"
+  },
+  {
+    "id": "q07",
+    "category": "Services",
+    "question": "Do you do AI work?",
+    "ground_truth": "Yes, two kinds: AI Automation (custom workflows and agents that remove busywork from your stack, with a human on decisions that matter) and AI search visibility / GEO, so AI tools mention your business when people ask.",
+    "source": "KB s5.5, s11.02"
+  },
+  {
+    "id": "q08",
+    "category": "Services",
+    "question": "Do you handle bookkeeping and accounting?",
+    "ground_truth": "Yes: clean books, monthly reporting, and month-end close, with the numbers explained in plain English so you can act on them.",
+    "source": "KB s5.8, s11.02"
+  },
+  {
+    "id": "q09",
+    "category": "Pricing",
+    "question": "Where can I see your prices?",
+    "ground_truth": "On the pricing page, published publicly, before you speak to anyone.",
+    "source": "KB s6, s11.03"
+  },
+  {
+    "id": "q10",
+    "category": "Pricing",
+    "question": "Do you charge monthly or one-time?",
+    "ground_truth": "Both, depending on the work. Ongoing work like marketing, sales, and bookkeeping is a monthly retainer; defined builds like a website or a brand identity are fixed-fee projects.",
+    "source": "KB s6, s11.03"
+  },
+  {
+    "id": "q11",
+    "category": "Pricing",
+    "question": "Do bundles or packages save money?",
+    "ground_truth": "Yes. The more of the stack you run with Simplified Startup, the better the per-service rate, and the pieces compound because one team coordinates them.",
+    "source": "KB s6, s11.03"
+  },
+  {
+    "id": "q12",
+    "category": "Pricing",
+    "question": "Why do you publish your prices when most agencies don't?",
+    "ground_truth": "Because hidden pricing exists to protect the seller. Simplified Startup was once handed a 9,000 dollar invoice for what turned out to be a slide deck and a Loom video; publishing prices removes that possibility.",
+    "source": "KB s3, s11.03"
+  },
+  {
+    "id": "q13",
+    "category": "Getting Started",
+    "question": "How do I get started with Simplified Startup?",
+    "ground_truth": "Book a free strategy call or fill in the Start Project form. Simplified Startup maps the fastest path from where you are to real traction and sends you a written plan.",
+    "source": "KB s11.04, s15"
+  },
+  {
+    "id": "q14",
+    "category": "Getting Started",
+    "question": "Is the first call really free, and how long is it?",
+    "ground_truth": "Yes: the first strategy call is free, about 30 minutes, with no obligation. You leave with a real written plan that is yours to keep whether or not you hire them.",
+    "source": "KB s11.04"
+  },
+  {
+    "id": "q15",
+    "category": "Getting Started",
+    "question": "Do I need to already have a website before starting?",
+    "ground_truth": "No. If you don't have one, that is usually the first thing built. If you do, they audit it before recommending anything.",
+    "source": "KB s11.04"
+  },
+  {
+    "id": "q16",
+    "category": "Getting Started",
+    "question": "What do I need to prepare before we start?",
+    "ground_truth": "Nothing formal. It helps to have what you sell, who buys it, what you have already tried, your current numbers, and access to any existing site or ad accounts.",
+    "source": "KB s11.04"
+  },
+  {
+    "id": "q17",
+    "category": "How We Work",
+    "question": "How long until I see results?",
+    "ground_truth": "It depends on the channel. Paid ads and a new site can move things within weeks; SEO usually takes 3 to 6 months for meaningful movement. You are told what to expect, and by when, in writing before you start.",
+    "source": "KB s11.05, s11.06"
+  },
+  {
+    "id": "q18",
+    "category": "How We Work",
+    "question": "Will I get a dedicated point of contact?",
+    "ground_truth": "Yes: one named senior specialist owns your account and you meet them before you sign. The person who scopes the work is the person who does it and reports on it.",
+    "source": "KB s7, s11.05"
+  },
+  {
+    "id": "q19",
+    "category": "How We Work",
+    "question": "How often will we communicate?",
+    "ground_truth": "Weekly written updates, a monthly report, and a quarterly scope review, with your contact reachable in between.",
+    "source": "KB s7, s11.05"
+  },
+  {
+    "id": "q20",
+    "category": "How We Work",
+    "question": "How do you report on results?",
+    "ground_truth": "One monthly report that opens with the number that changes your bank balance (enquiries, booked calls, closed sales, clean books) and names what didn't work and what changes next month.",
+    "source": "KB s7, s11.05"
+  },
+  {
+    "id": "q21",
+    "category": "SEO & Marketing",
+    "question": "What is SEO?",
+    "ground_truth": "The work that helps your website show up higher in Google's free, unpaid results: technical fixes, on-page content, and earning trust from other sites.",
+    "source": "KB s11.06, s12"
+  },
+  {
+    "id": "q22",
+    "category": "SEO & Marketing",
+    "question": "How long does SEO take to work?",
+    "ground_truth": "Usually 3 to 6 months for meaningful movement. Anyone promising rankings in 30 days isn't being honest.",
+    "source": "KB s11.06"
+  },
+  {
+    "id": "q23",
+    "category": "SEO & Marketing",
+    "question": "What's the difference between SEO and Google Ads?",
+    "ground_truth": "Ads are rented attention: you pay per click and traffic stops when the budget stops. SEO is owned attention: it takes months to build and keeps working afterward. Most businesses use ads for immediate pipeline with SEO compounding underneath.",
+    "source": "KB s11.06"
+  },
+  {
+    "id": "q24",
+    "category": "SEO & Marketing",
+    "question": "What is a money page?",
+    "ground_truth": "A page built around one specific service, business type, and location, like 'SEO for realtors in Raleigh', aimed at people searching with high intent to buy.",
+    "source": "KB s11.06, s12"
+  },
+  {
+    "id": "q25",
+    "category": "SEO & Marketing",
+    "question": "What is AI search or GEO?",
+    "ground_truth": "People increasingly search inside AI tools like ChatGPT, Gemini, Claude, and Perplexity instead of Google. GEO (Generative Engine Optimization) is the work of making sure those tools mention and recommend your business in their answers.",
+    "source": "KB s11.06, s12"
+  },
+  {
+    "id": "q26",
+    "category": "Contracts",
+    "question": "Do I have to sign a long-term contract?",
+    "ground_truth": "No. A short initial term, then month to month, with no auto-renew and no notice-period games.",
+    "source": "KB s3, s11.07"
+  },
+  {
+    "id": "q27",
+    "category": "Contracts",
+    "question": "What happens to my website, content, and accounts if we part ways?",
+    "ground_truth": "They stay yours. Every account, asset, and login is in your name from day one, so there is nothing to hand back and nothing to rebuild.",
+    "source": "KB s11.07, s11.09"
+  },
+  {
+    "id": "q28",
+    "category": "Data & Privacy",
+    "question": "Who owns the content and assets you create for me?",
+    "ground_truth": "You do: copy, design, code, and accounts, from day one.",
+    "source": "KB s3, s11.09"
+  },
+  {
+    "id": "q29",
+    "category": "Data & Privacy",
+    "question": "Do you share client information with third parties?",
+    "ground_truth": "No, beyond the tools required to deliver the work such as analytics, ad platforms, CRM, and accounting software. Client data is not sold or traded.",
+    "source": "KB s11.09"
+  },
+  {
+    "id": "q30",
+    "category": "Fit / Positioning",
+    "question": "I already have a vendor for one service. Can you still help?",
+    "ground_truth": "Yes. Take the services you are missing and Simplified Startup will work alongside your existing vendor, flagging honestly if the split is creating the handoff gaps they are meant to remove.",
+    "source": "KB s9, s5"
+  }
+]

@@ -78,54 +78,42 @@ class FounderProfile(BaseModel):
     ready_for_cta: bool = Field(
         default=False,
         description="True only if the founder has shared enough (stage + real bottleneck) that offering the "
-                    "strategy call now would feel earned and specific.",
+        "free strategy call will land as helpful rather than premature.",
     )
-    follow_up: Optional[str] = Field(default=None, description="One follow-up question if not yet covered")
+    follow_up: Optional[str] = Field(default=None, description="Not used.")
 
 
-# --------------------------------------------------------------------------- #
-# Discover-phase structured reply (reply text + tappable answer chips)
-# --------------------------------------------------------------------------- #
 class DiscoverTurn(BaseModel):
-    reply: str = Field(description="The advisor's short, warm reply, ending in exactly one question.")
+    reply: str = Field(description="The assistant's warm, 1–3 sentence reply.")
     chips: List[str] = Field(
         default_factory=list,
-        description="2 to 5 full conversational sentences (8 to 12 words each) written in the founder's own "
-                    "voice as if they are answering the question just asked. Each chip must be concrete and "
-                    "specific — never binary yes/no, never one or two words, never generic. The number of "
-                    "chips should match the question: questions about what they've tried → 4-5 chips; "
-                    "questions about stage or goal → 3 chips; questions about a specific problem → 2-3 chips. "
-                    "Never include an answer the founder has already given in this conversation.",
+        description="2–4 short tappable answer options that each answer the question just asked.",
     )
 
 
 # --------------------------------------------------------------------------- #
-# Service recommendation (used by the /recommendation path)
+# Service recommendation
 # --------------------------------------------------------------------------- #
 class ServiceRecommendation(BaseModel):
-    primary_service: str = Field(description="The single most relevant SS service for this founder.")
-    secondary_service: Optional[str] = Field(default=None, description="A second SS service if clearly relevant.")
-    reasoning: str = Field(description="Why this service fits — grounded in what the founder said.")
-    one_piece_of_advice: str = Field(description="One concrete directional insight for this founder.")
-    cta: str = Field(description="The free strategy call offer — once, no pressure.")
-    page_link: Optional[str] = Field(default=None, description="The most relevant SS page link from the KB.")
+    primary_service: str = Field(description="One of the 8 Simplified Startup services, exact name.")
+    secondary_service: Optional[str] = Field(default=None, description="Only if clearly relevant.")
+    reasoning: str = Field(description="Grounded in what the founder said. No invented facts.")
+    one_piece_of_advice: str = Field(description="Concrete and actionable.")
+    cta: str = Field(description="Warm free-strategy-call offer, no pressure.")
+    page_link: str = Field(description="Relative path to the most relevant SS page from KB.")
 
 
 # --------------------------------------------------------------------------- #
-# Graph state
+# LangGraph state
 # --------------------------------------------------------------------------- #
-class Turn(TypedDict):
-    role: str
-    content: str
-
-
 class GraphState(TypedDict, total=False):
     session_id: str
-    messages: List[Turn]
+    messages: List[dict]
     last_user_input: str
-    conv_stage: str
     intent: str
+    conv_stage: str
     founder_profile: dict
+    retrieved_chunks: List[str]
     assistant_reply: str
     chips: List[str]
     recommendation: dict
@@ -133,6 +121,10 @@ class GraphState(TypedDict, total=False):
     cta_ready: bool
     cta_offered: int
     grounding_flags: List[str]
+    # New: lead + session timestamps carried through for conversation persistence
+    started_at: str
+    lead_name: str
+    lead_email: str
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +151,10 @@ class MessageResponse(BaseModel):
     recommendation_ready: bool
     chips: List[str] = Field(default_factory=list)
     grounding_flags: List[str] = Field(default_factory=list)
+    # New: lets the frontend decide which buttons / CTA shape to render.
+    phase: str = Field(default="")
+    show_explore_button: bool = Field(default=False)
+    show_success_stories_button: bool = Field(default=False)
 
 
 class RecommendationResponse(BaseModel):
@@ -183,3 +179,4 @@ class CaptureResponse(BaseModel):
 class GroundingReport(BaseModel):
     supported: bool = Field(description="True if every claim traces to the provided sources.")
     unsupported_claims: List[str] = Field(default_factory=list)
+    corrections: List[str] = Field(default_factory=list)

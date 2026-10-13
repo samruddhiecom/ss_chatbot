@@ -4,13 +4,16 @@ Flow per user turn:
   classify intent -> (refusal | advisor) -> output check
 
 The advisor node runs a phased conversation:
-  discover  -> learn the founder's situation (reply + tappable chips), no call yet
-  cta       -> once understood, offer the free call once, with the booking link
-  objection -> answer their concern, may re-offer the call once
-  close     -> they signalled readiness, hand over the booking link now
+  discover    -> learn the founder's situation (reply + tappable chips), no call yet
+  cta         -> once understood, offer the free call once, with the booking link
+  soft_close  -> founder is unsure; offer the call AND a path to explore the main site
+  objection   -> answer their concern, may re-offer the call once
+  close       -> they signalled readiness, hand over the booking link now
+  success     -> founder asked for proof / case studies; point to success stories
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from langgraph.graph import END, START, StateGraph
@@ -22,6 +25,8 @@ from app.schemas import (
     GraphState,
     Intent,
 )
+
+logger = logging.getLogger("ss_advisor")
 
 MAX_DISCOVERY_TURNS = 6
 MIN_DISCOVERY_TURNS = 2
@@ -49,11 +54,16 @@ def _detect_kb_route(text: str):
 
 
 def classify_intent(state: GraphState) -> dict:
-    intent = input_rail.classify(
-        state.get("messages", []),
-        state.get("last_user_input", "")
-    )
-    return {"intent": intent.value}
+    try:
+        intent = input_rail.classify(
+            state.get("messages", []),
+            state.get("last_user_input", "")
+        )
+        return {"intent": intent.value}
+    except Exception as e:
+        logger.error("Intent classification failed: %s", e)
+        # Fail open to on_topic so the conversation keeps moving.
+        return {"intent": Intent.ON_TOPIC.value}
 
 
 def handle_refusal(state: GraphState) -> dict:
@@ -98,8 +108,16 @@ def _substantive_user_turns(messages) -> int:
 
 
 def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: int) -> str:
+    # 1. Explicit buying signal always wins.
     if advisor.is_buying_signal(last_user_input, cta_offered):
         return "close"
+    # 2. Explicit success-stories ask always wins when posed anytime.
+    if input_rail.looks_like_success_stories(last_user_input):
+        return "success"
+    # 3. Unsure founder: soft close, regardless of turn count.
+    if input_rail.looks_like_unsure(last_user_input):
+        return "soft_close"
+    # 4. Standard discovery -> cta -> objection flow.
     ready = bool(getattr(profile, "ready_for_cta", False))
     discovery_done = (ready and user_turns >= MIN_DISCOVERY_TURNS) or user_turns >= MAX_DISCOVERY_TURNS
     if cta_offered == 0 and not discovery_done:
@@ -115,27 +133,45 @@ def run_advisor(state: GraphState) -> dict:
     last_user_input = state.get("last_user_input", "")
     user_turns = _substantive_user_turns(messages)
 
-    profile = advisor.extract_profile(messages)
+    try:
+        profile = advisor.extract_profile(messages)
+    except Exception as e:
+        logger.error("Profile extraction failed: %s", e)
+        from app.schemas import FounderProfile
+        profile = FounderProfile()
+
     phase = _decide_phase(profile, last_user_input, user_turns, cta_offered)
 
     from app.kb import store
 
-    kb_route = _detect_kb_route(last_user_input)
-    if kb_route:
-        typed_chunks = store.query_by_type(kb_route, top_k=6)
-        retrieval_query = _build_retrieval_query(profile, last_user_input)
-        cosine_chunks = store.query(retrieval_query, top_k=4)
-        seen = set()
+    kb_chunks: list[str] = []
+    try:
+        kb_route = _detect_kb_route(last_user_input)
+        if kb_route:
+            typed_chunks = store.query_by_type(kb_route, top_k=6)
+            retrieval_query = _build_retrieval_query(profile, last_user_input)
+            cosine_chunks = store.query(retrieval_query, top_k=4)
+            seen = set()
+            for c in typed_chunks + cosine_chunks:
+                if c not in seen:
+                    seen.add(c)
+                    kb_chunks.append(c)
+        else:
+            retrieval_query = _build_retrieval_query(profile, last_user_input)
+            kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
+    except Exception as e:
+        logger.error("KB retrieval failed: %s", e)
         kb_chunks = []
-        for c in typed_chunks + cosine_chunks:
-            if c not in seen:
-                seen.add(c)
-                kb_chunks.append(c)
-    else:
-        retrieval_query = _build_retrieval_query(profile, last_user_input)
-        kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
 
-    reply, chips = advisor.generate_reply(messages, kb_chunks, phase, profile)
+    try:
+        reply, chips = advisor.generate_reply(messages, kb_chunks, phase, profile)
+    except Exception as e:
+        logger.error("Reply generation failed in phase %s: %s", phase, e)
+        reply = (
+            "I had trouble pulling that together just now. "
+            "Could you tell me more about what you're building and what's getting in the way?"
+        )
+        chips = []
 
     # Store the kb_text for use in the output rail regeneration closure
     kb_text = "\n\n".join(kb_chunks) if kb_chunks else ""
@@ -153,11 +189,15 @@ def run_advisor(state: GraphState) -> dict:
         )
         return llm.generate(system, f"KB context:\n{kb_text}\n\nTranscript:\n{sources}", temperature=0.3)
 
-    reply, flags = output_rail.regenerate_if_flagged(reply, sources, _regen)
+    try:
+        reply, flags = output_rail.regenerate_if_flagged(reply, sources, _regen)
+    except Exception as e:
+        logger.error("Output rail failed: %s", e)
+        flags = []
 
     messages.append({"role": "assistant", "content": reply})
 
-    offered = phase in ("cta", "close")
+    offered = phase in ("cta", "close", "soft_close")
     new_cta_offered = cta_offered + (1 if offered else 0)
 
     return {
@@ -173,8 +213,6 @@ def run_advisor(state: GraphState) -> dict:
 
 
 def output_check(state: GraphState) -> dict:
-    # Flags already computed in run_advisor during regeneration.
-    # This node is kept for future extensibility (e.g. LLM claims check).
     existing = list(state.get("grounding_flags", []))
     return {"grounding_flags": existing}
 
