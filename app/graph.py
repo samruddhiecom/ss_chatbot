@@ -115,10 +115,11 @@ def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: i
     if input_rail.looks_like_success_stories(last_user_input):
         return "success"
     # 3. Standard discovery -> cta -> objection flow.
-    #    Soft close is used as the CTA phase variant when the founder has been
-    #    vague/unsure through discovery — the LLM decides readiness, not a regex.
+    #    MIN_DISCOVERY_TURNS is a hard floor — CTA never fires before it,
+    #    regardless of what the LLM's ready_for_cta says.
     ready = bool(getattr(profile, "ready_for_cta", False))
-    discovery_done = (ready and user_turns >= MIN_DISCOVERY_TURNS) or user_turns >= MAX_DISCOVERY_TURNS
+    below_min = user_turns < MIN_DISCOVERY_TURNS
+    discovery_done = (not below_min and ready) or user_turns >= MAX_DISCOVERY_TURNS
     if cta_offered == 0 and not discovery_done:
         return "discover"
     if cta_offered == 0 and discovery_done:
