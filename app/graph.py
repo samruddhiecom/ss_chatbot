@@ -114,15 +114,18 @@ def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: i
     # 2. Explicit success-stories ask always wins when posed anytime.
     if input_rail.looks_like_success_stories(last_user_input):
         return "success"
-    # 3. Unsure founder: soft close, regardless of turn count.
-    if input_rail.looks_like_unsure(last_user_input):
-        return "soft_close"
-    # 4. Standard discovery -> cta -> objection flow.
+    # 3. Standard discovery -> cta -> objection flow.
+    #    Soft close is used as the CTA phase variant when the founder has been
+    #    vague/unsure through discovery — the LLM decides readiness, not a regex.
     ready = bool(getattr(profile, "ready_for_cta", False))
     discovery_done = (ready and user_turns >= MIN_DISCOVERY_TURNS) or user_turns >= MAX_DISCOVERY_TURNS
     if cta_offered == 0 and not discovery_done:
         return "discover"
     if cta_offered == 0 and discovery_done:
+        # Use soft_close when the founder has not yet named a clear bottleneck,
+        # so the CTA offer comes with both buttons rather than a hard push.
+        if not profile.bottleneck:
+            return "soft_close"
         return "cta"
     return "objection"
 
