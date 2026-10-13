@@ -313,13 +313,20 @@ async def advisor_webhook(request: Request):
 
 
 # ── Notion sync ───────────────────────────────────────────────────────────────
+# Memory posture on Render free tier (512 MB):
+#   - First sync delayed 10 minutes so startup finishes cleanly and the first
+#     user requests do not overlap with the sync's embedder spike.
+#   - Sync runs in its own thread, then explicitly releases the fastembed model.
+#   - gc.collect() after sync to return baseline memory before the next request.
 _SYNC_LOCK = threading.Lock()
 _SYNCING = False
-SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
+SYNC_INTERVAL_SECONDS = 60 * 60  # 60 minutes (was 30)
+FIRST_SYNC_DELAY_SECONDS = 10 * 60  # 10 minutes (was 60s)
 
 
 def _run_sync(label: str = "scheduled") -> None:
     global _SYNCING
+    import gc as _gc
     logger.info("Notion KB sync started (%s)", label)
     try:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -329,6 +336,13 @@ def _run_sync(label: str = "scheduled") -> None:
     except Exception as e:
         logger.error("Notion KB sync failed (%s): %s", label, e)
     finally:
+        # Release the embedder so RSS drops back to baseline between syncs.
+        try:
+            from app.kb import store as _store
+            _store.drop_embedder()
+        except Exception:
+            pass
+        _gc.collect()
         _SYNCING = False
 
 
@@ -352,9 +366,11 @@ def _scheduled_sync() -> None:
 
 @app.on_event("startup")
 async def startup_event():
-    """Kick off the first scheduled sync and set the 30-minute polling cadence."""
-    logger.info("App started. Scheduling first Notion KB sync in 60 seconds.")
-    t = threading.Timer(60, _scheduled_sync)
+    """Kick off the first scheduled sync and set the hourly polling cadence.
+    The first sync is delayed well past startup so user requests get a stable
+    process rather than one still spiking from embedder load + ingest."""
+    logger.info("App started. First Notion KB sync in %d seconds.", FIRST_SYNC_DELAY_SECONDS)
+    t = threading.Timer(FIRST_SYNC_DELAY_SECONDS, _scheduled_sync)
     t.daemon = True
     t.start()
 

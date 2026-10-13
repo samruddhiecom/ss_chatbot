@@ -2,54 +2,102 @@
 
 FastEmbed is ONNX-based (onnxruntime), so there is no torch dependency. The same
 model embeds both documents and queries, which is required for sane retrieval.
+
+Memory posture:
+  - The embedder is loaded lazily on first call, never at import time.
+  - Batched embedding keeps peak memory low during KB ingestion.
+  - A manual drop() releases the embedder after a big ingest so the process
+    can return to its baseline footprint.
 """
 from __future__ import annotations
 
+import gc
 from functools import lru_cache
 from typing import List, Optional
 
 from config import settings
 
 
-@lru_cache(maxsize=1)
+# Lazy singletons. Nothing touches fastembed or chromadb at import time.
+_EMBEDDER = None
+_COLLECTION = None
+
+
 def _embedder():
-    from fastembed import TextEmbedding
-    return TextEmbedding(model_name=settings.embed_model)
+    global _EMBEDDER
+    if _EMBEDDER is None:
+        from fastembed import TextEmbedding
+        _EMBEDDER = TextEmbedding(model_name=settings.embed_model)
+    return _EMBEDDER
 
 
-def embed(texts: List[str]) -> List[List[float]]:
-    return [vec.tolist() for vec in _embedder().embed(texts)]
+def drop_embedder() -> None:
+    """Release the embedder so the process returns to baseline memory.
+    Safe to call after a big ingest; it will reload on the next query."""
+    global _EMBEDDER
+    _EMBEDDER = None
+    gc.collect()
 
 
-@lru_cache(maxsize=1)
+def embed(texts: List[str], batch_size: int = 8) -> List[List[float]]:
+    """Embed in small batches to keep peak memory low."""
+    if not texts:
+        return []
+    out: List[List[float]] = []
+    emb = _embedder()
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        for vec in emb.embed(batch):
+            out.append(vec.tolist())
+    return out
+
+
+def _collection_impl():
+    global _COLLECTION
+    if _COLLECTION is None:
+        import chromadb
+        client = chromadb.PersistentClient(path=settings.chroma_dir)
+        _COLLECTION = client.get_or_create_collection(
+            name=settings.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+    return _COLLECTION
+
+
 def _collection():
-    import chromadb
-    client = chromadb.PersistentClient(path=settings.chroma_dir)
-    return client.get_or_create_collection(
-        name=settings.collection_name,
-        metadata={"hnsw:space": "cosine"},
-    )
+    return _collection_impl()
 
 
 def reset_collection() -> None:
+    global _COLLECTION
     import chromadb
     client = chromadb.PersistentClient(path=settings.chroma_dir)
     try:
         client.delete_collection(settings.collection_name)
     except Exception:
         pass
-    _collection.cache_clear()
+    _COLLECTION = None
 
 
-def add(ids: List[str], documents: List[str], metadatas: List[dict]) -> None:
+def add(ids: List[str], documents: List[str], metadatas: List[dict], batch_size: int = 8) -> None:
+    """Insert chunks in small batches so memory stays flat during a big ingest."""
     if not documents:
         return
-    _collection().add(
-        ids=ids,
-        documents=documents,
-        metadatas=metadatas,
-        embeddings=embed(documents),
-    )
+    col = _collection()
+    for i in range(0, len(documents), batch_size):
+        sl = slice(i, i + batch_size)
+        batch_docs = documents[sl]
+        batch_ids = ids[sl]
+        batch_metas = metadatas[sl]
+        batch_embs = embed(batch_docs, batch_size=batch_size)
+        col.add(
+            ids=batch_ids,
+            documents=batch_docs,
+            metadatas=batch_metas,
+            embeddings=batch_embs,
+        )
+        # Help the allocator reclaim the batch's intermediates between inserts.
+        gc.collect()
 
 
 def count() -> int:

@@ -148,9 +148,9 @@ def run_advisor(state: GraphState) -> dict:
     try:
         kb_route = _detect_kb_route(last_user_input)
         if kb_route:
-            typed_chunks = store.query_by_type(kb_route, top_k=6)
+            typed_chunks = store.query_by_type(kb_route, top_k=4)
             retrieval_query = _build_retrieval_query(profile, last_user_input)
-            cosine_chunks = store.query(retrieval_query, top_k=4)
+            cosine_chunks = store.query(retrieval_query, top_k=3)
             seen = set()
             for c in typed_chunks + cosine_chunks:
                 if c not in seen:
@@ -158,7 +158,7 @@ def run_advisor(state: GraphState) -> dict:
                     kb_chunks.append(c)
         else:
             retrieval_query = _build_retrieval_query(profile, last_user_input)
-            kb_chunks = store.query(retrieval_query, top_k=10) if retrieval_query else []
+            kb_chunks = store.query(retrieval_query, top_k=4) if retrieval_query else []
     except Exception as e:
         logger.error("KB retrieval failed: %s", e)
         kb_chunks = []
