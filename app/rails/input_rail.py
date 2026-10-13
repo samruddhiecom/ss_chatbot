@@ -287,5 +287,4 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "holding growth back?"
         ),
     }
-    return canned.get(intent, _UNKNOWN), None#   c a c h e   b u s t  
- 
+    return canned.get(intent, _UNKNOWN), None# cache bust
