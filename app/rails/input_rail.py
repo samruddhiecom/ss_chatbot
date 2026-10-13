@@ -92,14 +92,20 @@ _UNSURE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# "How good are you / what makes you different" — route to success stories reply.
+# "How good are you / prove it / what makes you different" — route to success stories reply.
 _SUCCESS_STORIES_RE = re.compile(
     r"\b(how good (is|are) (your|the) (service|services|team|work)|"
     r"any (case stud(y|ies)|success stor(y|ies)|past (clients|work|results))|"
     r"show me (results|proof|case stud(y|ies)|success stor(y|ies))|"
     r"have you (helped|worked with) (other|anyone|anybody)|"
     r"who have you (helped|worked with)|"
-    r"testimonials|client reviews|portfolio)\b",
+    r"testimonials|client reviews|portfolio|"
+    r"how do (i|we) know (this|it) will (work|actually work)|"
+    r"how do (i|we) know you('re| are) (good|legit|real|worth it)|"
+    r"prove (it|yourself|you can)|"
+    r"can you guarantee|what('s| is) your (track record|success rate)|"
+    r"do you have (proof|evidence|results|examples)|"
+    r"what results have you (gotten|achieved|delivered))\b",
     re.IGNORECASE,
 )
 
@@ -287,4 +293,4 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "holding growth back?"
         ),
     }
-    return canned.get(intent, _UNKNOWN), None# cache bust
+    return canned.get(intent, _UNKNOWN), None
