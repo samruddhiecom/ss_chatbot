@@ -66,6 +66,20 @@ _HARDSHIP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Advice-seeking — founder wants a deliverable or tactical how-to, not a conversation.
+# These slip through as on_topic but the bot should not scope or deliver them.
+_ADVICE_SEEKING_RE = re.compile(
+    r"^(give me|create|write|build|make|draft|generate|design|develop|produce|prepare|put together)"
+    r"\b.{0,60}\b(strategy|plan|roadmap|campaign|post|content|copy|email|script|template|"
+    r"marketing plan|growth plan|business plan|pitch deck|proposal|funnel|ad|ads)\b"
+    r"|"
+    r"\b(what should (i|we) (post|write|say|do|try|focus on|prioritize)|"
+    r"how (do|should|can) (i|we) (market|grow|scale|advertise|get customers|get leads|"
+    r"get users|get traffic|get sales|rank on google|do seo|run ads|build a brand)|"
+    r"can you (write|create|draft|build|make|generate|design) (me|us|a|an|my|our)\b)",
+    re.IGNORECASE,
+)
+
 # Founder is unsure what they need / what to tackle — route to soft close.
 _UNSURE_RE = re.compile(
     r"\b(don'?t know what to (tackle|do|start|prioritize)|"
@@ -108,6 +122,7 @@ Intents:
 - abuse: hostile, harassing, or abusive language.
 - hardship: expresses personal hardship, burnout, or emotional distress -- even if framed around business.
 - existing_client: identifies as an existing Simplified Startup client with an account or billing issue.
+- advice_seeking: asks the bot to produce a deliverable or give tactical how-to guidance -- e.g. "give me a marketing strategy", "write me a business plan", "what should I post on Instagram", "how do I run Facebook ads".
 
 IMPORTANT:
 - A short reply like "yes", "sure", "nope", "that's right" in the middle of a conversation is on_topic.
@@ -144,6 +159,11 @@ def looks_like_hardship(text: str) -> bool:
     return bool(_HARDSHIP_RE.search(text or ""))
 
 
+def looks_like_advice_seeking(text: str) -> bool:
+    """Founder is asking for a deliverable or tactical how-to the bot should not produce."""
+    return bool(_ADVICE_SEEKING_RE.search(text or ""))
+
+
 def looks_like_unsure(text: str) -> bool:
     """Founder is unsure what to tackle — route to soft close offering the call."""
     return bool(_UNSURE_RE.search(text or ""))
@@ -166,6 +186,8 @@ def classify(messages: List[dict], user_input: str) -> Intent:
         return Intent.ON_TOPIC
     if looks_like_hardship(user_input):
         return Intent.HARDSHIP
+    if looks_like_advice_seeking(user_input):
+        return Intent.ADVICE_SEEKING
     if looks_like_unsure(user_input):
         return Intent.ON_TOPIC
     if looks_like_success_stories(user_input):
@@ -257,6 +279,12 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "This one\u2019s better with a person. "
             "Reach your named contact directly, or email simplifiedstartupllc@gmail.com "
             "and someone will get back to you."
+        ),
+        Intent.ADVICE_SEEKING: (
+            "That\u2019s something a real person from Simplified Startup would be much better placed "
+            "to work through with you. What I can do is help figure out which service fits your "
+            "situation \u2014 what stage is your business at and what\u2019s the biggest thing "
+            "holding growth back?"
         ),
     }
     return canned.get(intent, _UNKNOWN), None

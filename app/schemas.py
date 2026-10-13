@@ -40,6 +40,7 @@ class Intent(str, Enum):
     ABUSE = "abuse"
     HARDSHIP = "hardship"
     EXISTING_CLIENT = "existing_client"
+    ADVICE_SEEKING = "advice_seeking"
 
 
 DEFERRAL_INTENTS = {
@@ -58,6 +59,7 @@ NON_PROGRESSING_INTENTS = DEFERRAL_INTENTS | {
     Intent.ABUSE,
     Intent.HARDSHIP,
     Intent.EXISTING_CLIENT,
+    Intent.ADVICE_SEEKING,
 }
 
 
