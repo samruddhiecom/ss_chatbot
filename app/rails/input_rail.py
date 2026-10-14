@@ -180,6 +180,24 @@ def looks_like_success_stories(text: str) -> bool:
     return bool(_SUCCESS_STORIES_RE.search(text or ""))
 
 
+def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
+    """Regex-only fast path. Returns an Intent when confident, None when uncertain (needs LLM)."""
+    if looks_like_injection(user_input):
+        return Intent.INJECTION
+    has_prior_assistant = any(m.get("role") == "assistant" for m in (messages or []))
+    if looks_like_greeting(user_input) and not has_prior_assistant:
+        return Intent.GREETING
+    if looks_like_affirmation(user_input):
+        return Intent.ON_TOPIC
+    if looks_like_hardship(user_input):
+        return Intent.HARDSHIP
+    if looks_like_advice_seeking(user_input):
+        return Intent.ADVICE_SEEKING
+    if looks_like_pricing_objection(user_input) or looks_like_objection(user_input):
+        return Intent.ON_TOPIC
+    return None  # uncertain — needs LLM
+
+
 def classify(messages: List[dict], user_input: str) -> Intent:
     if looks_like_injection(user_input):
         return Intent.INJECTION

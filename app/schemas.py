@@ -127,6 +127,8 @@ class GraphState(TypedDict, total=False):
     started_at: str
     lead_name: str
     lead_email: str
+    # Latency optimization: profile cached from combined classify+profile call
+    _cached_profile: object
 
 
 # --------------------------------------------------------------------------- #
@@ -178,6 +180,20 @@ class CaptureResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 # Grounding report (used by output rail)
 # --------------------------------------------------------------------------- #
+class ClassifyAndProfile(BaseModel):
+    """Single-call schema that returns both intent classification and founder profile extraction.
+    Used to cut per-turn Groq calls from 3 to 2."""
+    intent: Intent = Field(description="The single best-matching intent for the latest message.")
+    intent_reason: str = Field(description="One short clause explaining the intent choice.")
+    stage: Optional[str] = Field(default=None)
+    bottleneck: Optional[str] = Field(default=None)
+    already_tried: Optional[str] = Field(default=None)
+    service_interest: Optional[str] = Field(default=None)
+    covered: bool = Field(default=False)
+    ready_for_cta: bool = Field(default=False)
+    follow_up: Optional[str] = Field(default=None)
+
+
 class GroundingReport(BaseModel):
     supported: bool = Field(description="True if every claim traces to the provided sources.")
     unsupported_claims: List[str] = Field(default_factory=list)

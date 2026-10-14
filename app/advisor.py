@@ -105,11 +105,14 @@ Extract:
   Sales and Lead Generation, AI Automation, Business and Startup Advisory,
   Talent and Staffing, Bookkeeping and Accounting (or null if unclear)
 - covered: leave false unless they have clearly stated a real bottleneck
-- ready_for_cta: true ONLY when you clearly know ALL THREE of: (1) the founder's stage, (2) their specific
-  bottleneck in their own words -- not a chip tap or a one-line answer, but something that tells you what is
-  actually broken or missing in their business, AND (3) at least one of: what they have already tried, how
-  urgent this is, or what their current setup looks like. A single exchange is never enough. If any of these
-  three are missing or vague, set this false.
+- ready_for_cta: true ONLY when ALL FOUR conditions are met:
+  (1) the founder's business stage is clearly stated,
+  (2) their specific bottleneck is stated in their own words -- "inconsistent sales" or "no leads" counts,
+      but a vague opener like "struggling to grow" does NOT count on its own,
+  (3) you know at least one concrete detail: what they have already tried, how long the problem has existed,
+      what their current marketing/sales/ops setup looks like, or how urgent this is for them,
+  (4) at least 3 substantive exchanges have happened (not counting greetings).
+  If ANY of these four is missing or vague, set this false. When in doubt, set false.
 - follow_up: null (not used)
 
 Rules:
@@ -259,11 +262,25 @@ _PHASE_SUCCESS = (
     "as buttons. Do NOT invent client names, revenue numbers, or percentages."
 )
 
+_PHASE_POST_CTA = (
+    "CURRENT GOAL -- KEEP THE CONVERSATION GOING, NO CALL PUSH:\n"
+    "You have already offered the strategy call. Do NOT mention it again, do NOT include any link,\n"
+    "and do NOT ask them to book or schedule anything.\n"
+    "The founder is still in the conversation -- they may have more questions, concerns, or things to share.\n"
+    "React warmly and naturally to what they just said, exactly as you would in discover phase.\n"
+    "Ask ONE genuine follow-up question based on what they told you, or answer their question plainly\n"
+    "using only what you know about Simplified Startup.\n"
+    "If they ask about the call specifically (what happens, is it free, do they have to pay),\n"
+    "answer that question directly and naturally -- but only if they asked.\n"
+    "Never push, never repeat the offer, never add a closing line about taking the next step."
+)
+
 _PHASES = {
     "discover": _PHASE_DISCOVER,
     "cta": _PHASE_CTA,
     "soft_close": _PHASE_SOFT_CLOSE,
     "objection": _PHASE_OBJECTION,
+    "post_cta": _PHASE_POST_CTA,
     "close": _PHASE_CLOSE,
     "success": _PHASE_SUCCESS,
 }
