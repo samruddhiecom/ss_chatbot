@@ -165,8 +165,22 @@ def looks_like_hardship(text: str) -> bool:
     return bool(_HARDSHIP_RE.search(text or ""))
 
 
+_HELP_WITH_RE = re.compile(
+    r"^\s*(i (want|need|would like)|we (want|need|would like))\s+(help|assistance|support|guidance)\s+"
+    r"(with|on|for|setting up|building|creating|getting|around)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_help_with(text: str) -> bool:
+    """'I want help with X' — founder expressing a need, always on_topic."""
+    return bool(_HELP_WITH_RE.search(text or ""))
+
+
 def looks_like_advice_seeking(text: str) -> bool:
     """Founder is asking for a deliverable or tactical how-to the bot should not produce."""
+    if looks_like_help_with(text):
+        return False
     return bool(_ADVICE_SEEKING_RE.search(text or ""))
 
 
@@ -191,6 +205,8 @@ def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
         return Intent.ON_TOPIC
     if looks_like_hardship(user_input):
         return Intent.HARDSHIP
+    if looks_like_help_with(user_input):
+        return Intent.ON_TOPIC
     if looks_like_advice_seeking(user_input):
         return Intent.ADVICE_SEEKING
     if looks_like_pricing_objection(user_input) or looks_like_objection(user_input):
