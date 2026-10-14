@@ -196,6 +196,11 @@ def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: i
     below_min = user_turns < MIN_DISCOVERY_TURNS
     at_ceiling = user_turns >= MAX_DISCOVERY_TURNS
     discovery_done = (not below_min and llm_says_now) or at_ceiling
+    logger.info(
+        "CTA decision: user_turns=%d below_min=%s llm_says_now=%s at_ceiling=%s discovery_done=%s cta_offered=%d phase_will_be=%s",
+        user_turns, below_min, llm_says_now, at_ceiling, discovery_done, cta_offered,
+        "discover" if (cta_offered == 0 and not discovery_done) else ("cta/soft_close" if (cta_offered == 0 and discovery_done) else "post_cta/objection")
+    )
     if cta_offered == 0 and not discovery_done:
         return "discover"
     if cta_offered == 0 and discovery_done:
