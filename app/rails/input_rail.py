@@ -128,7 +128,7 @@ Intents:
 - abuse: hostile, harassing, or abusive language.
 - hardship: expresses personal hardship, burnout, or emotional distress -- even if framed around business.
 - existing_client: identifies as an existing Simplified Startup client with an account or billing issue.
-- advice_seeking: asks the bot to produce a deliverable or give tactical how-to guidance -- e.g. "give me a marketing strategy", "write me a business plan", "what should I post on Instagram", "how do I run Facebook ads".
+- advice_seeking: asks the bot to produce a deliverable or give tactical how-to guidance -- e.g. "give me a marketing strategy", "write me a business plan", "what should I post on Instagram", "how do I run Facebook ads". NOT advice_seeking: a founder floating a direction they are weighing ("what if we just focus on social media", "maybe we should try ads") -- that is on_topic.
 
 IMPORTANT:
 - A short reply like "yes", "sure", "nope", "that's right" in the middle of a conversation is on_topic.

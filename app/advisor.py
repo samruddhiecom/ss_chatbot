@@ -68,7 +68,15 @@ _EMPATHY_RE = re.compile(
     re.IGNORECASE,
 )
 
-_URL_RE = re.compile(r"https?://\S+")
+# Matches full URLs AND bare domains (e.g. "simplifiedstartup.com/start-project").
+# Used to deterministically strip any link the LLM emits in close/cta/post_cta/success/soft_close —
+# the frontend buttons are the ONLY source of links, so any URL in the text is noise or a hallucination.
+_URL_RE = re.compile(
+    r"https?://\S+"
+    r"|www\.\S+"
+    r"|\b(?:[a-z0-9-]+\.)+(?:com|app|io|co|org|net|ai)(?:/\S*)?",
+    re.IGNORECASE,
+)
 
 
 def is_buying_signal(text: str, cta_offered: int = 0) -> bool:
@@ -113,6 +121,17 @@ Extract:
       what their current marketing/sales/ops setup looks like, or how urgent this is for them,
   (4) at least 3 substantive exchanges have happened (not counting greetings).
   If ANY of these four is missing or vague, set this false. When in doubt, set false.
+- should_offer_call_now: this is your CONSIDERED JUDGMENT about whether RIGHT NOW is the natural moment to
+  offer the free strategy call. Think like a real advisor having a conversation: you offer the call when you
+  genuinely understand their situation well enough that a real person could help them, AND the founder has
+  opened up enough that the offer will feel earned and welcome rather than abrupt or salesy.
+  Set true when: you understand their stage, their real bottleneck, and enough context that the next natural
+  step is "talk to a human who can dig into this" -- and the founder seems engaged, not just testing you.
+  Set false when: you are still learning their situation, they just gave a one-line or vague answer, they are
+  mid-thought and clearly want to keep talking, or offering would interrupt a useful discovery thread.
+  This is independent of ready_for_cta -- ready_for_cta is a mechanical checklist; this is your read of the
+  conversation's actual rhythm. Weigh it like a human would. When genuinely unsure, set false and keep listening.
+- call_offer_reasoning: one short clause explaining your should_offer_call_now decision.
 - follow_up: null (not used)
 
 Rules:
@@ -369,8 +388,10 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
     system = persona + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
     text = llm.generate(system, user, temperature=0.4)
 
-    # Close / soft_close / success phases: strip ALL URLs deterministically. Buttons carry the links.
-    if phase in ("close", "soft_close", "success"):
+    # Strip ALL URLs deterministically on every phase except objection — the frontend buttons are the
+    # only source of links, so any URL the LLM emits is either redundant or a hallucination.
+    # Objection phase is the one exception: it may legitimately cite the pricing page URL.
+    if phase != "objection":
         text = _strip_urls(text)
 
     return (text, [])

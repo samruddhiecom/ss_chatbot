@@ -82,6 +82,15 @@ class FounderProfile(BaseModel):
         description="True only if the founder has shared enough (stage + real bottleneck) that offering the "
         "free strategy call will land as helpful rather than premature.",
     )
+    should_offer_call_now: bool = Field(
+        default=False,
+        description="The bot's considered judgment that THIS is the right moment to offer the call — the "
+        "conversation has reached a natural point where a call would feel earned and helpful, not pushy.",
+    )
+    call_offer_reasoning: Optional[str] = Field(
+        default=None,
+        description="One short clause explaining why now is or isn't the right moment to offer the call.",
+    )
     follow_up: Optional[str] = Field(default=None, description="Not used.")
 
 
@@ -191,6 +200,8 @@ class ClassifyAndProfile(BaseModel):
     service_interest: Optional[str] = Field(default=None)
     covered: bool = Field(default=False)
     ready_for_cta: bool = Field(default=False)
+    should_offer_call_now: bool = Field(default=False)
+    call_offer_reasoning: Optional[str] = Field(default=None)
     follow_up: Optional[str] = Field(default=None)
 
 

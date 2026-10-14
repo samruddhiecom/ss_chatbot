@@ -71,7 +71,10 @@ INTENT — pick exactly one:
 - abuse: hostile or abusive language
 - hardship: personal burnout or emotional distress
 - existing_client: existing Simplified Startup client with account/billing issue
-- advice_seeking: asks for a deliverable or tactical how-to (marketing strategy, business plan, what to post)
+- advice_seeking: asks the bot to PRODUCE a deliverable or give step-by-step how-to ("give me a marketing
+  strategy", "write me a business plan", "what should I post"). NOT advice_seeking: the founder floating a
+  direction they are considering ("what if we just focus on social media", "maybe we should try ads") — those
+  are on_topic, the founder thinking out loud about their own business.
 
 IMPORTANT: short replies like "yes", "nope", "sure" mid-conversation are on_topic. Pricing questions about SS services are on_topic.
 
@@ -82,7 +85,12 @@ PROFILE — extract from the full conversation:
 - service_interest: which of the 8 SS services fits best (null if unclear)
 - covered: false unless they have clearly stated a real bottleneck
 - ready_for_cta: true ONLY when ALL FOUR: (1) stage clearly stated, (2) specific bottleneck in own words,
-  (3) at least one concrete detail (what tried, urgency, current setup), (4) at least 3 substantive exchanges. When in doubt, false."""
+  (3) at least one concrete detail (what tried, urgency, current setup), (4) at least 3 substantive exchanges. When in doubt, false.
+- should_offer_call_now: your considered judgment that RIGHT NOW is the natural moment to offer the free call —
+  you understand their stage, real bottleneck, and enough context that "talk to a human" is the natural next step,
+  and the founder is engaged, not just testing you. False if still learning, they gave a vague one-liner, or
+  offering would interrupt a useful thread. Independent of ready_for_cta; weigh it like a human advisor would.
+- call_offer_reasoning: one short clause explaining the should_offer_call_now decision."""
 
 
 def _combined_classify_and_profile(messages: list[dict], user_input: str) -> tuple[Intent, "FounderProfile"]:
@@ -105,6 +113,8 @@ def _combined_classify_and_profile(messages: list[dict], user_input: str) -> tup
             service_interest=result.service_interest,
             covered=result.covered,
             ready_for_cta=result.ready_for_cta,
+            should_offer_call_now=result.should_offer_call_now,
+            call_offer_reasoning=result.call_offer_reasoning,
         )
         return result.intent, profile
     except Exception as e:
@@ -177,11 +187,15 @@ def _decide_phase(profile, last_user_input: str, user_turns: int, cta_offered: i
     if input_rail.looks_like_success_stories(last_user_input):
         return "success"
     # 3. Standard discovery -> cta -> post_cta flow.
-    #    MIN_DISCOVERY_TURNS is a hard floor — CTA never fires before it,
-    #    regardless of what the LLM's ready_for_cta says.
-    ready = bool(getattr(profile, "ready_for_cta", False))
+    #    CTA timing is now the LLM's considered judgment (should_offer_call_now),
+    #    gated by a hard MIN floor and a hard MAX ceiling:
+    #      - Never offer before MIN_DISCOVERY_TURNS, no matter what the LLM says.
+    #      - The LLM decides the exact moment between MIN and MAX.
+    #      - Force the offer at MAX_DISCOVERY_TURNS so a rambling chat still converts.
+    llm_says_now = bool(getattr(profile, "should_offer_call_now", False))
     below_min = user_turns < MIN_DISCOVERY_TURNS
-    discovery_done = (not below_min and ready) or user_turns >= MAX_DISCOVERY_TURNS
+    at_ceiling = user_turns >= MAX_DISCOVERY_TURNS
+    discovery_done = (not below_min and llm_says_now) or at_ceiling
     if cta_offered == 0 and not discovery_done:
         return "discover"
     if cta_offered == 0 and discovery_done:
