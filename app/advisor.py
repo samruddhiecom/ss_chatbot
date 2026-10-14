@@ -46,14 +46,20 @@ _STRONG_BUYING_RE = re.compile(
     r"|how do i\b.{0,20}\b(book|schedule|sign up|get started|get the link)"
     r"|book (the|a|my)\b.{0,10}\b(call|link|slot|session)"
     r"|schedule (the|a|my)\b.{0,10}\b(call|session|slot)"
+    r"|(set up|setup|set-up)\b.{0,10}\b(a |the |my )?(call|meeting|session|time|chat)"
+    r"|let'?s (set up|setup|do|schedule|book|talk|chat|hop on)\b.{0,15}\b(call|meeting|session|time|chat|it up)?"
     r"|sign me up|let'?s book|book a call|book the call"
     r"|just book|book us in|we need help now|ready to start|let's get started"
-    r"|i'?m ready|we'?re ready|i want to (start|begin|get started|move forward)",
+    r"|i'?m ready|we'?re ready|i want to (start|begin|get started|move forward)"
+    r"|let'?s (do it|go)\b",
     re.IGNORECASE,
 )
+# Weak affirm only counts as a buying signal when the WHOLE message is the affirmation
+# (so "ok sorry, how long before results?" does NOT count — that is a question, not a yes).
 _WEAK_AFFIRM_RE = re.compile(
     r"^\s*(yes|yeah|yep|yup|sure|ok|okay|sounds good|let'?s do it|"
-    r"let'?s go|i'?m in|go ahead|please do|do it|book it|perfect|great)\b",
+    r"let'?s go|i'?m in|go ahead|please do|do it|book it|perfect|great)"
+    r"[\s!.,]*$",
     re.IGNORECASE,
 )
 
@@ -287,11 +293,16 @@ _PHASE_POST_CTA = (
     "and do NOT ask them to book or schedule anything.\n"
     "The founder is still in the conversation -- they may have more questions, concerns, or things to share.\n"
     "React warmly and naturally to what they just said, exactly as you would in discover phase.\n"
-    "Ask ONE genuine follow-up question based on what they told you, or answer their question plainly\n"
-    "using only what you know about Simplified Startup.\n"
+    "Put your reply in the 'reply' field. Ask ONE genuine follow-up question based on what they told you,\n"
+    "or answer their question plainly using only what you know about Simplified Startup.\n"
     "If they ask about the call specifically (what happens, is it free, do they have to pay),\n"
     "answer that question directly and naturally -- but only if they asked.\n"
-    "Never push, never repeat the offer, never add a closing line about taking the next step."
+    "Never push, never repeat the offer, never add a closing line about taking the next step.\n\n"
+    "CHIPS: provide 2 to 4 tappable options in the 'chips' field that are natural ways the founder might\n"
+    "respond to your reply -- full first-person sentences, 8 to 16 words, in their voice (same style as discovery\n"
+    "chips). If your reply is answering a factual question rather than asking one, chips can be natural\n"
+    "follow-up things they might want to know next. Never put a link or a 'book the call' option in a chip.\n"
+    "Do NOT add a 'Something else' chip -- the frontend adds that automatically."
 )
 
 _PHASES = {
@@ -367,8 +378,9 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
     if needs_empathy(last_user_msg):
         persona = persona + _EMPATHY_RIDER
 
-    if phase == "discover":
-        system = persona + "\n\n" + _PHASE_DISCOVER
+    # discover and post_cta both produce tappable chips alongside the reply.
+    if phase in ("discover", "post_cta"):
+        system = persona + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
         try:
             out = llm.structured(
                 system=system,
@@ -378,11 +390,15 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
             )
             chips = [c.strip() for c in (out.chips or []) if c and c.strip()][:6]
             reply = (out.reply or "").strip()
+            if phase == "post_cta":
+                reply = _strip_urls(reply)
             if reply:
                 return (reply, chips)
         except Exception:
             pass
         text = llm.generate(system, user, temperature=0.4)
+        if phase == "post_cta":
+            text = _strip_urls(text)
         return (text, [])
 
     system = persona + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
