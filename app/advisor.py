@@ -52,8 +52,10 @@ _STRONG_BUYING_RE = re.compile(
     r"|(set up|setup|set-up)\b.{0,10}\b(a |the |my )?(call|meeting|session|time|chat)"
     r"|let'?s (set up|setup|do|schedule|book|talk|chat|hop on)\b.{0,15}\b(call|meeting|session|time|chat|it up)?"
     r"|sign me up|let'?s book|book a call|book the call"
-    r"|just book|book us in|we need help now|ready to start|let's get started"
-    r"|i'?m ready|we'?re ready|i want to (start|begin|get started|move forward)"
+    r"|just book|book us in|let's get started"
+    r"|i'?m ready (to|for)\b.{0,20}\b(call|start|book|go|move forward|chat|talk)"
+    r"|we'?re ready (to|for)\b.{0,20}\b(call|start|book|go|move forward|chat|talk)"
+    r"|i want to (get started with you|work with you|move forward with|book|schedule|sign up)"
     r"|let'?s (do it|go)\b",
     re.IGNORECASE,
 )
