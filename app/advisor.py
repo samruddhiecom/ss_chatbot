@@ -15,6 +15,9 @@ Conversation phases (decided in graph.py, applied here):
 from __future__ import annotations
 
 import re
+from typing import List
+
+from pydantic import BaseModel, Field
 
 from app import llm
 from app.kb import store
@@ -359,6 +362,36 @@ def _user_content(profile: FounderProfile, kb_text: str, transcript: str, messag
     )
 
 
+class _ChipsOnly(BaseModel):
+    chips: List[str] = Field(default_factory=list)
+
+
+_CHIPS_ONLY_SYSTEM = (
+    "You generate 2 to 4 tappable reply chips for a founder talking to the Simplified Startup AI Advisor.\n"
+    "Given the advisor's latest message, produce natural ways the founder might respond -- each a full\n"
+    "first-person sentence, 8 to 16 words, in the founder's voice. If the advisor asked a question, the chips\n"
+    "answer it. If the advisor answered something, the chips are natural next things the founder might say or ask.\n"
+    "Never include a link or a 'book a call' option. Return only the chips."
+)
+
+
+def _generate_chips_for(reply_text: str, transcript: str) -> list:
+    """Cheap chip-only call used when the main structured call returns no chips."""
+    if not llm.settings.has_llm:
+        return []
+    try:
+        out = llm.structured(
+            system=_CHIPS_ONLY_SYSTEM,
+            user=f"CONVERSATION SO FAR:\n{transcript}\n\nADVISOR'S LATEST MESSAGE:\n{reply_text}",
+            response_model=_ChipsOnly,
+            model=llm.settings.fast_model,
+            temperature=0.4,
+        )
+        return [c.strip() for c in (out.chips or []) if c and c.strip()][:6]
+    except Exception:
+        return []
+
+
 def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profile: FounderProfile):
     """Returns (reply_text, chips_list). chips are only produced in the discover phase."""
     if not llm.settings.has_llm:
@@ -393,13 +426,18 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
             if phase == "post_cta":
                 reply = _strip_urls(reply)
             if reply:
+                # If the model gave a reply but no chips, make a cheap chip-only
+                # follow-up call so post_cta/discover never render chip-less.
+                if not chips:
+                    chips = _generate_chips_for(reply, transcript)
                 return (reply, chips)
         except Exception:
             pass
         text = llm.generate(system, user, temperature=0.4)
         if phase == "post_cta":
             text = _strip_urls(text)
-        return (text, [])
+        chips = _generate_chips_for(text, transcript)
+        return (text, chips)
 
     system = persona + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
     text = llm.generate(system, user, temperature=0.4)
