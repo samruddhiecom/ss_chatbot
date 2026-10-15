@@ -218,6 +218,44 @@ def classify_chunk(heading: str, text: str, contains_pricing: bool = False) -> s
 
 # -- 5. Ingest ---------------------------------------------------------------
 
+
+def _sync_to_supabase(ids: list, docs: list, metas: list) -> None:
+    """Dual-write KB chunks to Supabase kb_chunks table.
+    
+    Replaces all existing rows on each sync (full refresh).
+    Never raises — a Supabase failure must not break the ChromaDB sync.
+    """
+    try:
+        from app.supabase_client import get_client
+        sb = get_client()
+        if sb is None:
+            print("Supabase client not available — skipping kb_chunks sync.")
+            return
+
+        # Full refresh: delete all existing rows then insert fresh.
+        sb.table("kb_chunks").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+
+        rows = []
+        for chunk_id, content, meta in zip(ids, docs, metas):
+            rows.append({
+                "chunk_id": chunk_id,
+                "content": content,
+                "section": meta.get("row_title", ""),
+                "type": meta.get("type", ""),
+                "stage": meta.get("stage", "any"),
+            })
+
+        if rows:
+            # Supabase has a 1000-row insert limit per call; batch if needed.
+            batch_size = 500
+            for i in range(0, len(rows), batch_size):
+                sb.table("kb_chunks").insert(rows[i:i + batch_size]).execute()
+
+        print(f"Supabase kb_chunks synced: {len(rows)} chunks.")
+    except Exception as e:
+        print(f"Supabase kb_chunks sync failed (ChromaDB unaffected): {e}")
+
+
 def main() -> None:
     rows = fetch_approved_rows()
     print(f"Fetched {len(rows)} approved public rows from DB {DB_ID}")
@@ -270,6 +308,9 @@ def main() -> None:
     store.add(ids, docs, metas)
     print(f"\nDone. Ingested {len(docs)} chunks from {len(rows)} rows into ChromaDB.")
     print(f"Collection now holds: {store.count()} chunks")
+
+    # Dual-write to Supabase (non-blocking — ChromaDB already done above).
+    _sync_to_supabase(ids, docs, metas)
 
 
 if __name__ == "__main__":

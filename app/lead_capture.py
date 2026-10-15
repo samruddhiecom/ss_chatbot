@@ -1,31 +1,27 @@
-"""Lead capture -- saves name, email, mobile to the SS Advisor Leads Notion database."""
+"""Lead capture -- saves name, email, mobile to Supabase leads table."""
 from __future__ import annotations
 
-import os
+import logging
 from datetime import datetime, timezone
 
-from notion_client import Client
-
-LEADS_DB_ID = os.environ.get("NOTION_LEADS_DB_ID", "3f18ba072e1980509046dce419cd38fe")
+logger = logging.getLogger("ss_advisor")
 
 
 def save_lead(name: str, email: str, mobile: str, session_id: str) -> bool:
-    """Save a lead to the Notion Leads database. Returns True on success."""
+    """Save a lead to Supabase. Returns True on success."""
     try:
-        token = os.environ["NOTION_TOKEN"]
-        nc = Client(auth=token)
-        nc.pages.create(
-            parent={"database_id": LEADS_DB_ID},
-            properties={
-                "Name": {"title": [{"text": {"content": name.strip()}}]},
-                "Email": {"email": email.strip()},
-                "Mobile": {"phone_number": mobile.strip()},
-                "Submitted at": {"date": {"start": datetime.now(timezone.utc).isoformat()}},
-                "Session ID": {"rich_text": [{"text": {"content": session_id}}]},
-            },
-        )
+        from app.supabase_client import get_client
+        sb = get_client()
+        if sb is None:
+            return False
+        sb.table("leads").insert({
+            "session_id": session_id or "",
+            "name": name.strip(),
+            "email": email.strip(),
+            "mobile": mobile.strip(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
         return True
     except Exception as e:
-        import logging
-        logging.getLogger("ss_advisor").error("Lead capture failed: %s", e)
+        logger.error("Lead capture failed: %s", e)
         return False

@@ -22,6 +22,9 @@ flashrank
 # Notion sync
 notion-client==2.2.1
 
+# Supabase
+supabase
+
 # Utilities + tests
 python-dotenv
 httpx
