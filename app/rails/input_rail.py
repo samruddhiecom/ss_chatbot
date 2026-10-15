@@ -167,13 +167,20 @@ def looks_like_hardship(text: str) -> bool:
 
 _HELP_WITH_RE = re.compile(
     r"^\s*(i (want|need|would like)|we (want|need|would like))\s+(help|assistance|support|guidance)\s+"
-    r"(with|on|for|setting up|building|creating|getting|around)\b",
+    r"(with|on|for|setting up|building|creating|getting|around)\b"
+    r"|"
+    # Bottleneck statements — founder describing what they need, not asking for a deliverable.
+    # "I need help defining X", "I need to figure out X", "help me understand X"
+    r"\b(i need (help )?(defining|understanding|figuring out|thinking through|working out|clarifying)|"
+    r"help me (understand|figure out|think through|work out|clarify)|"
+    r"i('?m| am) struggling to (understand|figure out|define|decide|choose|prioritize)|"
+    r"not sure (how to|what to|which to|where to) (start|begin|choose|decide|prioritize))\b",
     re.IGNORECASE,
 )
 
 
 def looks_like_help_with(text: str) -> bool:
-    """'I want help with X' — founder expressing a need, always on_topic."""
+    """'I want help with X' or 'I need help defining X' — bottleneck/need statement, always on_topic."""
     return bool(_HELP_WITH_RE.search(text or ""))
 
 
