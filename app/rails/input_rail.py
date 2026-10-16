@@ -193,6 +193,17 @@ def looks_like_hardship(text: str) -> bool:
     return bool(_HARDSHIP_RE.search(text or ""))
 
 
+# Questions about Simplified Startup itself — always on_topic, answer from KB.
+_SS_INFO_RE = re.compile(
+    r"\b(what is simplified startup|who (is|are|owns|runs|founded|started|built|created) simplified startup|"
+    r"tell me (about|more about) simplified startup|"
+    r"what does simplified startup (do|offer|provide|help with)|"
+    r"how does simplified startup work|"
+    r"is simplified startup (a|an|legit|real|good|trustworthy)|"
+    r"simplified startup (review|reviews|rating|founded|history|team|founder))\b",
+    re.IGNORECASE,
+)
+
 _HELP_WITH_RE = re.compile(
     r"^\s*(i (want|need|would like)|we (want|need|would like))\s+(help|assistance|support|guidance)\s+"
     r"(with|on|for|setting up|building|creating|getting|around)\b"
@@ -205,6 +216,11 @@ _HELP_WITH_RE = re.compile(
     r"not sure (how to|what to|which to|where to) (start|begin|choose|decide|prioritize))\b",
     re.IGNORECASE,
 )
+
+
+def looks_like_ss_info(text: str) -> bool:
+    """Questions about Simplified Startup itself — always on_topic, answer from KB."""
+    return bool(_SS_INFO_RE.search(text or ""))
 
 
 def looks_like_help_with(text: str) -> bool:
@@ -244,6 +260,8 @@ def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
         return Intent.FAREWELL
     if looks_like_social(user_input):
         return Intent.SOCIAL
+    if looks_like_ss_info(user_input):
+        return Intent.ON_TOPIC
     if looks_like_help_with(user_input):
         return Intent.ON_TOPIC
     if looks_like_advice_seeking(user_input):
