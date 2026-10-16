@@ -31,6 +31,26 @@ _GREETING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Farewells — graceful exit, never deflect as off-topic.
+_FAREWELL_RE = re.compile(
+    r"^\s*(bye|goodbye|good bye|see you|see ya|cya|later|take care|"
+    r"thanks? (bye|goodbye)|ok bye|okay bye|alright bye|cheers|"
+    r"thank you(,? bye)?|thanks(,? bye)?|talk (later|soon)|"
+    r"gotta go|gtg|have a good (day|one|night)|"
+    r"that'?s all|that'?s it|i'?m (done|good|set|all good))[\s!.,?]*$",
+    re.IGNORECASE,
+)
+
+# Social / compliment messages — acknowledge warmly, redirect to discovery.
+_SOCIAL_RE = re.compile(
+    r"^\s*(i (like|love|enjoy|appreciate) (what you'?re|this|your|the) (building|doing|offering|saying|service|work|bot|chatbot|advisor)|"
+    r"this is (cool|great|awesome|helpful|nice|interesting|good)|"
+    r"you'?re (good|great|helpful|amazing|cool|awesome)|"
+    r"(great|good|nice|awesome|cool|interesting) (bot|chatbot|advisor|tool|service)|"
+    r"well done|nice work|good job|impressive)[\s!.,?]*$",
+    re.IGNORECASE,
+)
+
 # Bare affirmations / negations — answers to the bot's question mid-chat.
 _AFFIRMATION_RE = re.compile(
     r"^\s*(yes|yeah|yep|yup|sure|ok|okay|nope|no|nah|maybe|"
@@ -148,6 +168,14 @@ def looks_like_greeting(text: str) -> bool:
     return bool(_GREETING_RE.match(text or ""))
 
 
+def looks_like_farewell(text: str) -> bool:
+    return bool(_FAREWELL_RE.match(text or ""))
+
+
+def looks_like_social(text: str) -> bool:
+    return bool(_SOCIAL_RE.match(text or ""))
+
+
 def looks_like_affirmation(text: str) -> bool:
     return bool(_AFFIRMATION_RE.match(text or ""))
 
@@ -212,6 +240,10 @@ def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
         return Intent.ON_TOPIC
     if looks_like_hardship(user_input):
         return Intent.HARDSHIP
+    if looks_like_farewell(user_input):
+        return Intent.FAREWELL
+    if looks_like_social(user_input):
+        return Intent.SOCIAL
     if looks_like_help_with(user_input):
         return Intent.ON_TOPIC
     if looks_like_advice_seeking(user_input):
@@ -332,6 +364,14 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "to work through with you. What I can do is help figure out which service fits your "
             "situation \u2014 what stage is your business at and what\u2019s the biggest thing "
             "holding growth back?"
+        ),
+        Intent.FAREWELL: (
+            "Good luck with everything \u2014 hope it goes well! "
+            "If you ever want to pick this up again, we\u2019re right here."
+        ),
+        Intent.SOCIAL: (
+            "Glad it\u2019s been helpful! "
+            "Tell me about your business \u2014 what are you building and where are you stuck?"
         ),
     }
     return canned.get(intent, _UNKNOWN), None
