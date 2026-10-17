@@ -193,6 +193,18 @@ def looks_like_hardship(text: str) -> bool:
     return bool(_HARDSHIP_RE.search(text or ""))
 
 
+# Meta questions about the bot itself — what it does, how to use it.
+_META_BOT_RE = re.compile(
+    r"\b(what (can|does|is) (this|the) (chatbot|bot|advisor|assistant|tool|ai|you) (do|help with|offer|for)|"
+    r"how (do i|can i|should i) use (this|the) (chatbot|bot|advisor|assistant|tool|ai)|"
+    r"in what ways (can|does) (this|the)? ?(chatbot|bot|advisor|assistant|tool|ai|you)|"
+    r"what('?s| is) (this|the) (chatbot|bot|advisor|assistant|tool|ai)|"
+    r"how (does|do) (this|you) work|"
+    r"what are you (here for|for|able to do)|"
+    r"what (kind of|type of) (help|questions|things) (can you|do you) (help with|answer|handle))\b",
+    re.IGNORECASE,
+)
+
 # Questions about Simplified Startup itself — always on_topic, answer from KB.
 _SS_INFO_RE = re.compile(
     r"\b(what is simplified startup|who (is|are|owns|runs|founded|started|built|created) simplified startup|"
@@ -216,6 +228,11 @@ _HELP_WITH_RE = re.compile(
     r"not sure (how to|what to|which to|where to) (start|begin|choose|decide|prioritize))\b",
     re.IGNORECASE,
 )
+
+
+def looks_like_meta_bot(text: str) -> bool:
+    """Meta questions about what the bot does or how to use it."""
+    return bool(_META_BOT_RE.search(text or ""))
 
 
 def looks_like_ss_info(text: str) -> bool:
@@ -260,6 +277,8 @@ def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
         return Intent.FAREWELL
     if looks_like_social(user_input):
         return Intent.SOCIAL
+    if looks_like_meta_bot(user_input):
+        return Intent.META_BOT
     if looks_like_ss_info(user_input):
         return Intent.ON_TOPIC
     if looks_like_help_with(user_input):
@@ -382,6 +401,11 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "to work through with you. What I can do is help figure out which service fits your "
             "situation \u2014 what stage is your business at and what\u2019s the biggest thing "
             "holding growth back?"
+        ),
+        Intent.META_BOT: (
+            "I\u2019m the Simplified Startup AI Advisor. Tell me about your business \u2014 "
+            "what stage you\u2019re at, what\u2019s holding you back \u2014 and I\u2019ll point you "
+            "to the service that fits, or connect you with a real person if you want to take it further."
         ),
         Intent.FAREWELL: (
             "Good luck with everything \u2014 hope it goes well! "

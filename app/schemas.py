@@ -43,6 +43,7 @@ class Intent(str, Enum):
     ADVICE_SEEKING = "advice_seeking"
     FAREWELL = "farewell"
     SOCIAL = "social"
+    META_BOT = "meta_bot"
 
 
 DEFERRAL_INTENTS = {
@@ -64,6 +65,7 @@ NON_PROGRESSING_INTENTS = DEFERRAL_INTENTS | {
     Intent.ADVICE_SEEKING,
     Intent.FAREWELL,
     Intent.SOCIAL,
+    Intent.META_BOT,
 }
 
 
