@@ -169,11 +169,24 @@ def _build_retrieval_query(profile, last_user_input: str) -> str:
 
 
 def _substantive_user_turns(messages) -> int:
+    """Count only turns where the founder shared real business information.
+    Excludes greetings, farewells, social, meta questions, and short filler
+    so they don't count toward the MIN_DISCOVERY_TURNS floor."""
     count = 0
     for m in messages:
         if m.get("role") != "user":
             continue
-        if input_rail.looks_like_greeting(m.get("content", "")):
+        text = m.get("content", "")
+        if not text.strip():
+            continue
+        if input_rail.looks_like_greeting(text):
+            continue
+        if input_rail.looks_like_farewell(text):
+            continue
+        if input_rail.looks_like_social(text):
+            continue
+        # Skip very short filler (under 4 words) — "ok", "sure", "yes please" etc.
+        if len(text.split()) < 4:
             continue
         count += 1
     return count
