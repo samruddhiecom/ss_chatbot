@@ -196,8 +196,8 @@ def looks_like_hardship(text: str) -> bool:
 # Meta questions about the bot itself — what it does, how to use it.
 _META_BOT_RE = re.compile(
     r"\b(what (can|does|is) (this|the) (chatbot|bot|advisor|assistant|tool|ai|you) (do|help with|offer|for)|"
-    r"how (do i|can i|should i) use (this|the) (chatbot|bot|advisor|assistant|tool|ai)|"
-    r"in what ways (can|does) (this|the)? ?(chatbot|bot|advisor|assistant|tool|ai|you)|"
+    r"how (do i|can i|should i) use (this|the)? ?(chatbot|bot|advisor|assistant|tool|ai)|"
+    r"in what ways (can|does|could|do) (i|we|you|this|the)? ?(use|utilize|help|interact with)? ?(this|the)? ?(chatbot|bot|advisor|assistant|tool|ai|you)|"
     r"what('?s| is) (this|the) (chatbot|bot|advisor|assistant|tool|ai)|"
     r"how (does|do) (this|you) work|"
     r"what are you (here for|for|able to do)|"
