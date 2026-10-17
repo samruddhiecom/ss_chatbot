@@ -86,10 +86,11 @@ PROFILE — extract from the full conversation:
 - covered: false unless they have clearly stated a real bottleneck
 - ready_for_cta: true ONLY when ALL FOUR: (1) stage clearly stated, (2) specific bottleneck in own words,
   (3) at least one concrete detail (what tried, urgency, current setup), (4) at least 3 substantive exchanges. When in doubt, false.
-- should_offer_call_now: your considered judgment that RIGHT NOW is the natural moment to offer the free call —
-  you understand their stage, real bottleneck, and enough context that "talk to a human" is the natural next step,
-  and the founder is engaged, not just testing you. False if still learning, they gave a vague one-liner, or
-  offering would interrupt a useful thread. Independent of ready_for_cta; weigh it like a human advisor would.
+- should_offer_call_now: your considered judgment that RIGHT NOW is the natural moment to offer the free call.
+  Only count turns where the founder shared CONCRETE BUSINESS INFORMATION (stage, bottleneck, what tried, setup).
+  Do NOT count greetings, meta questions, emotional statements alone, or one-liners. Need at least 3 such turns.
+  Set true only when: stage known + real bottleneck stated + at least one concrete detail + 3 substantive turns.
+  When in doubt, false.
 - call_offer_reasoning: one short clause explaining the should_offer_call_now decision."""
 
 

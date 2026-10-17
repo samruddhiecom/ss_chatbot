@@ -132,16 +132,17 @@ Extract:
       what their current marketing/sales/ops setup looks like, or how urgent this is for them,
   (4) at least 3 substantive exchanges have happened (not counting greetings).
   If ANY of these four is missing or vague, set this false. When in doubt, set false.
-- should_offer_call_now: this is your CONSIDERED JUDGMENT about whether RIGHT NOW is the natural moment to
-  offer the free strategy call. Think like a real advisor having a conversation: you offer the call when you
-  genuinely understand their situation well enough that a real person could help them, AND the founder has
-  opened up enough that the offer will feel earned and welcome rather than abrupt or salesy.
-  Set true when: you understand their stage, their real bottleneck, and enough context that the next natural
-  step is "talk to a human who can dig into this" -- and the founder seems engaged, not just testing you.
-  Set false when: you are still learning their situation, they just gave a one-line or vague answer, they are
-  mid-thought and clearly want to keep talking, or offering would interrupt a useful discovery thread.
-  This is independent of ready_for_cta -- ready_for_cta is a mechanical checklist; this is your read of the
-  conversation's actual rhythm. Weigh it like a human would. When genuinely unsure, set false and keep listening.
+- should_offer_call_now: your CONSIDERED JUDGMENT about whether RIGHT NOW is the natural moment to offer the
+  free strategy call. Think like a real advisor: offer the call when you genuinely understand their situation
+  well enough that a real person could help, AND the founder has opened up enough that the offer feels earned.
+  IMPORTANT: only count turns where the founder shared CONCRETE BUSINESS INFORMATION (stage, bottleneck, what
+  they tried, their setup). Do NOT count greetings, meta questions about the bot, emotional statements alone,
+  or one-line vague answers. You need at least 3 such substantive exchanges before setting this true.
+  Set true when: you know their stage, real bottleneck, and at least one concrete detail, AND they have had
+  at least 3 substantive exchanges sharing business information.
+  Set false when: fewer than 3 substantive business exchanges have happened, they just gave a one-liner,
+  they are mid-thought, or offering would interrupt a useful discovery thread.
+  When genuinely unsure, set false and keep listening.
 - call_offer_reasoning: one short clause explaining your should_offer_call_now decision.
 - follow_up: null (not used)
 
