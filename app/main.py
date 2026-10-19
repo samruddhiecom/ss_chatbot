@@ -4,7 +4,6 @@ Endpoints:
   POST /conversation/start    -- disclosure + opening message
   POST /conversation/message  -- send a message, get a reply (+ chips) with CTA when ready
   POST /capture               -- submit lead (name + email)
-  POST /lead                  -- lead gate submission (name + email + mobile)
   POST /webhook/advisor-1     -- adapter for the ss-advisor frontend contract
   GET  /health
   GET  /sync-status
@@ -15,16 +14,14 @@ import logging
 import os
 import sys
 import threading
-import traceback
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from app import capture as capture_mod
-from app import conversation_store
 from app.graph import GRAPH
 from app.schemas import (
     CaptureRequest,
@@ -38,7 +35,7 @@ from app import advisor as adv
 logger = logging.getLogger("ss_advisor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="SS AI Advisor Engine", version="2.3.0")
+app = FastAPI(title="SS AI Advisor Engine", version="2.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -77,23 +74,6 @@ def _get_session(session_id: str) -> dict:
     return state
 
 
-def _persist_turn(sid: str, state: dict) -> None:
-    """Fire-and-forget persistence to Notion Conversations DB. Never blocks."""
-    try:
-        conversation_store.persist_async(
-            session_id=sid,
-            messages=state.get("messages", []),
-            stage=state.get("conv_stage", ""),
-            cta_offered=int(state.get("cta_offered", 0) or 0),
-            profile=state.get("founder_profile", {}),
-            lead_name=state.get("lead_name", ""),
-            lead_email=state.get("lead_email", ""),
-            started_at=state.get("started_at", ""),
-        )
-    except Exception as e:
-        logger.error("Persist dispatch failed: %s", e)
-
-
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "llm_configured": settings.has_llm, "model": settings.smart_model}
@@ -113,9 +93,6 @@ def start() -> StartResponse:
             "cta_offered": 0,
             "chips": [],
             "grounding_flags": [],
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "lead_name": "",
-            "lead_email": "",
         }
     return StartResponse(
         session_id=sid,
@@ -135,42 +112,17 @@ def message(req: MessageRequest) -> MessageResponse:
         state["messages"].append({"role": "user", "content": req.message})
         state["last_user_input"] = req.message
 
-    try:
-        result = GRAPH.invoke(state)
-    except Exception as e:
-        logger.error("Graph invoke failed for %s: %s\n%s", req.session_id, e, traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Advisor engine error. Please retry.")
+    result = GRAPH.invoke(state)
 
     with _LOCK:
-        # Carry across the lead and started_at fields that the graph does not touch.
-        result["started_at"] = state.get("started_at", "")
-        result["lead_name"] = state.get("lead_name", "")
-        result["lead_email"] = state.get("lead_email", "")
         _SESSIONS[req.session_id] = result
 
-    _persist_turn(req.session_id, result)
-
-    phase = result.get("conv_stage", "")
-    # Explore button rides along with cta, soft_close, close so the founder always has a
-    # low-friction way to look at the website instead of being funneled only to booking.
-    show_explore = phase in ("cta", "soft_close", "close")
-    show_success = phase == "success"
-
-    # In the success phase the message shouldn't carry URLs — buttons do.
-    reply_text = result.get("assistant_reply", "")
-    if show_success:
-        import re as _re
-        reply_text = _re.sub(r"https?://\S+", "", reply_text).strip().rstrip(":").strip()
-
     return MessageResponse(
-        message=reply_text,
+        message=result.get("assistant_reply", ""),
         intent=result.get("intent", ""),
         recommendation_ready=bool(result.get("cta_ready", False)),
         chips=result.get("chips", []) or [],
         grounding_flags=result.get("grounding_flags", []),
-        phase=phase,
-        show_explore_button=show_explore,
-        show_success_stories_button=show_success,
     )
 
 
@@ -198,13 +150,6 @@ class LeadRequest(_BaseModel):
 def lead(req: LeadRequest):
     from app.lead_capture import save_lead
     ok = save_lead(req.name, req.email, req.mobile, req.session_id)
-    # Stash the lead on the session so it lands in the Conversations DB too.
-    if req.session_id:
-        with _LOCK:
-            s = _SESSIONS.get(req.session_id)
-            if s is not None:
-                s["lead_name"] = req.name
-                s["lead_email"] = req.email
     return {"saved": ok}
 
 
@@ -244,16 +189,13 @@ async def advisor_webhook(request: Request):
                 "cta_offered": 0,
                 "chips": [],
                 "grounding_flags": [],
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "lead_name": "",
-                "lead_email": "",
             }
             _ADAPTER_SESSIONS[state_token] = state
 
         user_turns = sum(1 for m in state["messages"] if m["role"] == "user")
         if user_turns >= settings.max_messages_per_session:
             return {
-                "reply": "We've covered a lot of ground. Book a free 30-minute strategy call to keep going with a real person.",
+                "reply": "We've covered a lot of ground. Book a free 30-minute strategy call to keep going with a real person: " + BOOK_URL,
                 "state_token": state_token,
                 "cta": [{"id": "consult", "label": "Book a free strategy call", "url": BOOK_URL, "kind": "link"}],
                 "suggestions": [],
@@ -263,35 +205,19 @@ async def advisor_webhook(request: Request):
         state["messages"].append({"role": "user", "content": message_text})
         state["last_user_input"] = message_text
 
-    try:
-        result = GRAPH.invoke(state)
-    except Exception as e:
-        logger.error("Adapter graph invoke failed: %s\n%s", e, traceback.format_exc())
-        return {
-            "reply": "I hit a snag just now. Could you say that again, or rephrase it?",
-            "state_token": state_token,
-            "cta": [],
-            "suggestions": [],
-            "state": {"phase": "ERROR", "handoff": False, "ask_contact": None, "closing": False},
-        }
+    result = GRAPH.invoke(state)
 
     with _ADAPTER_LOCK:
-        result["started_at"] = state.get("started_at", "")
-        result["lead_name"] = state.get("lead_name", "")
-        result["lead_email"] = state.get("lead_email", "")
         _ADAPTER_SESSIONS[state_token] = result
-
-    _persist_turn(state_token, result)
 
     reply = result.get("assistant_reply", "")
     cta_ready = bool(result.get("cta_ready", False))
     chips = result.get("chips", []) or []
-    phase = result.get("conv_stage", "DIAGNOSING")
 
     # Strip ANY URL from close/cta replies — the CTA card carries the correct link.
     import re as _re
     _URL_RE = _re.compile(r"https?://\S+")
-    if cta_ready or phase in ("success",):
+    if cta_ready:
         reply = _URL_RE.sub("", reply).strip().rstrip(":").strip()
 
     cta = []
@@ -304,7 +230,7 @@ async def advisor_webhook(request: Request):
         "cta": cta,
         "suggestions": chips,
         "state": {
-            "phase": phase,
+            "phase": result.get("conv_stage", "DIAGNOSING"),
             "handoff": False,
             "ask_contact": None,
             "closing": cta_ready,
@@ -313,41 +239,45 @@ async def advisor_webhook(request: Request):
 
 
 # ── Notion sync ───────────────────────────────────────────────────────────────
-# Memory posture on Render free tier (512 MB):
-#   - First sync delayed 10 minutes so startup finishes cleanly and the first
-#     user requests do not overlap with the sync's embedder spike.
-#   - Sync runs in its own thread, then explicitly releases the fastembed model.
-#   - gc.collect() after sync to return baseline memory before the next request.
 _SYNC_LOCK = threading.Lock()
 _SYNCING = False
-SYNC_INTERVAL_SECONDS = 60 * 60  # 60 minutes (was 30)
-FIRST_SYNC_DELAY_SECONDS = 10 * 60  # 10 minutes (was 60s)
+SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
 
 
 def _run_sync(label: str = "scheduled") -> None:
     global _SYNCING
     import gc as _gc
     logger.info("Notion KB sync started (%s)", label)
+    sync_result = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         import notion_page_sync
-        notion_page_sync.main()
+        # main() returns (ids, docs, metas) — Supabase sync is intentionally deferred.
+        sync_result = notion_page_sync.main()
         logger.info("Notion KB sync completed (%s)", label)
     except Exception as e:
         logger.error("Notion KB sync failed (%s): %s", label, e)
     finally:
-        # Release the embedder so RSS drops back to baseline between syncs.
+        # Drop embedder and GC BEFORE Supabase sync to avoid OOM from having both in RAM.
         try:
             from app.kb import store as _store
             _store.drop_embedder()
         except Exception:
             pass
         _gc.collect()
+        # Now sync to Supabase — embedder is gone, RAM headroom is available.
+        if sync_result:
+            try:
+                notion_page_sync._sync_to_supabase(*sync_result)
+            except Exception as e:
+                logger.error("Supabase KB sync failed: %s", e)
         _SYNCING = False
 
 
 def _schedule_sync() -> None:
     """Re-schedule the next sync after SYNC_INTERVAL_SECONDS."""
+    import importlib
+    # Re-import in case the module was hot-reloaded
     t = threading.Timer(SYNC_INTERVAL_SECONDS, _scheduled_sync)
     t.daemon = True
     t.start()
@@ -366,11 +296,10 @@ def _scheduled_sync() -> None:
 
 @app.on_event("startup")
 async def startup_event():
-    """Kick off the first scheduled sync and set the hourly polling cadence.
-    The first sync is delayed well past startup so user requests get a stable
-    process rather than one still spiking from embedder load + ingest."""
-    logger.info("App started. First Notion KB sync in %d seconds.", FIRST_SYNC_DELAY_SECONDS)
-    t = threading.Timer(FIRST_SYNC_DELAY_SECONDS, _scheduled_sync)
+    """Kick off the first scheduled sync and set the 30-minute polling cadence."""
+    logger.info("App started. Scheduling first Notion KB sync in 60 seconds.")
+    # Delay the first sync so the embedder has time to warm up
+    t = threading.Timer(60, _scheduled_sync)
     t.daemon = True
     t.start()
 

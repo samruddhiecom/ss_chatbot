@@ -309,9 +309,12 @@ def main() -> None:
     print(f"\nDone. Ingested {len(docs)} chunks from {len(rows)} rows into ChromaDB.")
     print(f"Collection now holds: {store.count()} chunks")
 
-    # Dual-write to Supabase (non-blocking — ChromaDB already done above).
-    _sync_to_supabase(ids, docs, metas)
+    # Return the data so the caller can sync to Supabase AFTER dropping the embedder.
+    # This avoids an OOM spike from having the embedder + Supabase HTTP calls in RAM simultaneously.
+    return ids, docs, metas
 
 
 if __name__ == "__main__":
-    main()
+    result = main()
+    if result:
+        _sync_to_supabase(*result)
