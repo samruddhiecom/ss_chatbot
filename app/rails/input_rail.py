@@ -449,9 +449,8 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
         ),
         Intent.ADVICE_SEEKING: (
             "That\u2019s something a real person from Simplified Startup would be much better placed "
-            "to work through with you. What I can do is help figure out which service fits your "
-            "situation \u2014 what stage is your business at and what\u2019s the biggest thing "
-            "holding growth back?"
+            "to work through with you \u2014 the strategy call is exactly where that kind of planning happens. "
+            "In the meantime, tell me a bit more about where things stand so I can point you to the right service."
         ),
         Intent.META_BOT: (
             "I\u2019m the Simplified Startup AI Advisor. Tell me about your business \u2014 "
