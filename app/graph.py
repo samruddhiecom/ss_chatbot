@@ -289,10 +289,16 @@ def run_advisor(state: GraphState) -> dict:
         reply, chips = advisor.generate_reply(messages, kb_chunks, phase, profile)
     except Exception as e:
         logger.error("Reply generation failed in phase %s: %s", phase, e)
-        reply = (
-            "I had trouble pulling that together just now. "
-            "Could you tell me more about what you're building and what's getting in the way?"
-        )
+        # Fallback: a natural discovery question so the conversation continues
+        # without exposing an error message to the founder.
+        _fallback_questions = [
+            "What's the biggest thing holding your growth back right now?",
+            "What have you already tried to move things forward?",
+            "How long has this been a problem for you?",
+            "What does your current setup look like?",
+        ]
+        import random
+        reply = _fallback_questions[hash(last_user_input or "") % len(_fallback_questions)]
         chips = []
 
     # Store the kb_text for use in the output rail regeneration closure

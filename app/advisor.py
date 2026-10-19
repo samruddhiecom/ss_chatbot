@@ -285,9 +285,8 @@ _PHASE_OBJECTION = (
     "you actually know about Simplified Startup. Do not give advice or how-to.\n"
     "On pricing: if they ask what something costs, share the KB-approved prices from the reference information\n"
     "provided -- only quote figures that actually appear in the reference information, never estimate or invent.\n"
-    "If pricing is in the reference information, quote the specific figure AND include the pricing page link so\n"
-    "they can see the full breakdown: " + PRICING_URL + "\n"
-    "If no pricing is in the reference information, point them to: " + PRICING_URL + "\n"
+    "If no pricing is in the reference information, say the exact cost is scoped and agreed in writing before\n"
+    "any work begins, and that a free growth plan includes the price. Do NOT include any URL in your reply.\n"
     "On trust / past bad experience (burned by agency, wasted money, didn't get results): lead with ONE short\n"
     "empathetic sentence acknowledging specifically what happened to them. Then in one sentence explain what\n"
     "makes Simplified Startup different (fixed scope, written price upfront, senior operators). Do NOT\n"
@@ -480,11 +479,9 @@ def generate_reply(messages: list[dict], kb_chunks: list[str], phase: str, profi
     system = persona + "\n\n" + _PHASES.get(phase, _PHASE_DISCOVER)
     text = llm.generate(system, user, temperature=0.4)
 
-    # Strip ALL URLs deterministically on every phase except objection — the frontend buttons are the
-    # only source of links, so any URL the LLM emits is either redundant or a hallucination.
-    # Objection phase is the one exception: it may legitimately cite the pricing page URL.
-    if phase != "objection":
-        text = _strip_urls(text)
+    # Strip ALL URLs deterministically on every phase — the frontend buttons are the
+    # only source of links. Pricing page link is shown via the CTA card, not in text.
+    text = _strip_urls(text)
 
     return (text, [])
 
