@@ -108,8 +108,15 @@ def _strip_urls(text: str) -> str:
     """Remove all URLs from text. Used in close phase so the LLM cannot
     inject a wrong link -- the frontend CTA card handles the booking link."""
     text = _URL_RE.sub("", text)
+    # Nuclear fallback: catch any remaining simplifiedstartup domain the regex missed.
+    text = re.sub(r'https?://\S*simplifiedstartup\S*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\S*simplifiedstartup\.com\S*', '', text, flags=re.IGNORECASE)
+    # Clean up artefacts left by URL removal.
     text = re.sub(r'\s{2,}', ' ', text)
     text = re.sub(r'\s+([.,:])', r'\1', text)
+    # Remove dangling "here:" or "here :" with nothing after.
+    text = re.sub(r'\bhere\s*:\s*$', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bhere\s*:\s*\.', '.', text, flags=re.IGNORECASE)
     return text.strip(": ").strip()
 
 
@@ -274,8 +281,10 @@ _PHASE_OBJECTION = (
     "If pricing is in the reference information, quote the specific figure AND include the pricing page link so\n"
     "they can see the full breakdown: " + PRICING_URL + "\n"
     "If no pricing is in the reference information, point them to: " + PRICING_URL + "\n"
-    "On trust / past bad experience: acknowledge what happened in one short sentence before answering. Do not\n"
-    "lecture, do not defend, do not oversell.\n"
+    "On trust / past bad experience (burned by agency, wasted money, didn't get results): lead with ONE short\n"
+    "empathetic sentence acknowledging specifically what happened to them. Then in one sentence explain what\n"
+    "makes Simplified Startup different (fixed scope, written price upfront, senior operators). Do NOT\n"
+    "immediately pivot to asking about revenue targets or their goals -- stay on their concern first.\n"
     "If it genuinely fits, you may offer the call one more time with this link: " + BOOK_URL + " -- but do not push,\n"
     "do not repeat yourself, and never ask for a meeting time or their email."
 )

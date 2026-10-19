@@ -30,8 +30,8 @@ from app.schemas import (
 
 logger = logging.getLogger("ss_advisor")
 
-MAX_DISCOVERY_TURNS = 8
-MIN_DISCOVERY_TURNS = 4
+MAX_DISCOVERY_TURNS = 10
+MIN_DISCOVERY_TURNS = 5
 
 _SERVICE_Q_RE = re.compile(
     r"\b(what services|what do you offer|what can you help|what do you do|"
