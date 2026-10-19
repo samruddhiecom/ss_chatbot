@@ -117,6 +117,23 @@ def message(req: MessageRequest) -> MessageResponse:
     with _LOCK:
         _SESSIONS[req.session_id] = result
 
+    # Persist conversation to Supabase — fire and forget, never blocks the response.
+    try:
+        from app.conversation_store import persist_async
+        session_data = _SESSIONS.get(req.session_id, {})
+        persist_async(
+            session_id=req.session_id,
+            messages=result.get("messages", []),
+            stage=result.get("conv_stage", ""),
+            cta_offered=int(result.get("cta_offered", 0) or 0),
+            profile=result.get("founder_profile", {}),
+            lead_name=session_data.get("lead_name", ""),
+            lead_email=session_data.get("lead_email", ""),
+            started_at=session_data.get("started_at", ""),
+        )
+    except Exception as e:
+        logger.error("Conversation persist dispatch failed: %s", e)
+
     return MessageResponse(
         message=result.get("assistant_reply", ""),
         intent=result.get("intent", ""),
@@ -149,7 +166,14 @@ class LeadRequest(_BaseModel):
 @app.post("/lead")
 def lead(req: LeadRequest):
     from app.lead_capture import save_lead
+    from datetime import datetime, timezone
     ok = save_lead(req.name, req.email, req.mobile, req.session_id)
+    # Store lead info in session so conversation persistence can include it.
+    with _LOCK:
+        if req.session_id and req.session_id in _SESSIONS:
+            _SESSIONS[req.session_id]["lead_name"] = req.name
+            _SESSIONS[req.session_id]["lead_email"] = req.email
+            _SESSIONS[req.session_id]["started_at"] = datetime.now(timezone.utc).isoformat()
     return {"saved": ok}
 
 
@@ -246,31 +270,15 @@ SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
 
 def _run_sync(label: str = "scheduled") -> None:
     global _SYNCING
-    import gc as _gc
     logger.info("Notion KB sync started (%s)", label)
-    sync_result = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         import notion_page_sync
-        # main() returns (ids, docs, metas) — Supabase sync is intentionally deferred.
-        sync_result = notion_page_sync.main()
+        notion_page_sync.main()
         logger.info("Notion KB sync completed (%s)", label)
     except Exception as e:
         logger.error("Notion KB sync failed (%s): %s", label, e)
     finally:
-        # Drop embedder and GC BEFORE Supabase sync to avoid OOM from having both in RAM.
-        try:
-            from app.kb import store as _store
-            _store.drop_embedder()
-        except Exception:
-            pass
-        _gc.collect()
-        # Now sync to Supabase — embedder is gone, RAM headroom is available.
-        if sync_result:
-            try:
-                notion_page_sync._sync_to_supabase(*sync_result)
-            except Exception as e:
-                logger.error("Supabase KB sync failed: %s", e)
         _SYNCING = False
 
 
