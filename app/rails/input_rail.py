@@ -305,7 +305,15 @@ def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
     """Regex-only fast path. Returns an Intent when confident, None when uncertain (needs LLM)."""
     if looks_like_injection(user_input):
         return Intent.INJECTION
+    # Buying signals must be checked before agent_request — "give me the link to do the booking"
+    # would otherwise match agent_request before we can route it to close phase in graph.py.
+    # Return ON_TOPIC so graph.py's is_buying_signal() check can handle it.
+    from app.advisor import is_buying_signal
     has_prior_assistant = any(m.get("role") == "assistant" for m in (messages or []))
+    cta_offered = sum(1 for m in (messages or []) if m.get("role") == "assistant" and
+                      any(kw in m.get("content", "").lower() for kw in ["strategy call", "book a free", "book your free"]))
+    if is_buying_signal(user_input, cta_offered):
+        return Intent.ON_TOPIC
     if looks_like_greeting(user_input) and not has_prior_assistant:
         return Intent.GREETING
     if looks_like_affirmation(user_input):
