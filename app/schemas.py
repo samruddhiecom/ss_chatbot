@@ -44,6 +44,8 @@ class Intent(str, Enum):
     FAREWELL = "farewell"
     SOCIAL = "social"
     META_BOT = "meta_bot"
+    AGENT_REQUEST = "agent_request"
+    GENERAL_KNOWLEDGE = "general_knowledge"
 
 
 DEFERRAL_INTENTS = {
@@ -66,6 +68,8 @@ NON_PROGRESSING_INTENTS = DEFERRAL_INTENTS | {
     Intent.FAREWELL,
     Intent.SOCIAL,
     Intent.META_BOT,
+    Intent.AGENT_REQUEST,
+    Intent.GENERAL_KNOWLEDGE,
 }
 
 

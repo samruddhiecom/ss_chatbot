@@ -78,11 +78,15 @@ _OBJECTION_RE = re.compile(
 )
 
 # Personal hardship / burnout / distress — always route to hardship canned response.
+# Must be clearly personal/emotional distress, NOT business frustration like "I'm exhausted trying to grow".
 _HARDSHIP_RE = re.compile(
-    r"\b(burned out|burnt out|can't keep going|cannot keep going|don't know if i can|"
-    r"i'm exhausted|exhausted from|thinking of giving up|want to give up|"
-    r"at my limit|hit my limit|breaking point|can't do this anymore|"
-    r"mentally drained|losing hope|no longer motivated|ready to quit)\b",
+    r"\b(burned out|burnt out|can'?t keep going|cannot keep going|"
+    r"thinking of giving up (on (life|everything|myself))|want to give up (on (life|everything|myself))|"
+    r"at my (limit|wit'?s end)|breaking point|can'?t do this anymore|"
+    r"mentally drained|losing hope|no longer motivated|"
+    r"don'?t know (if i can|how much longer)|i feel (hopeless|helpless|worthless)|"
+    r"nothing (is working|works) (and i|anymore and)|"
+    r"ready to quit (everything|life|it all))\b",
     re.IGNORECASE,
 )
 
@@ -149,6 +153,7 @@ Intents:
 - hardship: expresses personal hardship, burnout, or emotional distress -- even if framed around business.
 - existing_client: identifies as an existing Simplified Startup client with an account or billing issue.
 - advice_seeking: asks the bot to produce a deliverable or give tactical how-to guidance -- e.g. "give me a marketing strategy", "write me a business plan", "what should I post on Instagram", "how do I run Facebook ads". NOT advice_seeking: a founder floating a direction they are weighing ("what if we just focus on social media", "maybe we should try ads") -- that is on_topic.
+- statistics_bait: asks for specific market size numbers, TAM, industry statistics. NOT statistics_bait: general conceptual questions like "what is PMF", "why do startups fail", "what does MRR mean" -- those are general_knowledge and on_topic.
 
 IMPORTANT:
 - A short reply like "yes", "sure", "nope", "that's right" in the middle of a conversation is on_topic.
@@ -193,6 +198,18 @@ def looks_like_hardship(text: str) -> bool:
     return bool(_HARDSHIP_RE.search(text or ""))
 
 
+# General startup knowledge questions — answer briefly, pivot to their business.
+_GENERAL_KNOWLEDGE_RE = re.compile(
+    r"\b(what (is|are|does) (product.market fit|pmf|mrr|arr|burn rate|runway|cap table|"
+    r"term sheet|safe note|equity|vesting|churn|ltv|cac|b2b|b2c|saas|mvp|go.to.market|"
+    r"venture capital|angel investor|seed round|series [abc])|"
+    r"(what|why) (is|are) the (most common|biggest|main|top) (reason|reasons|cause|causes|mistake|mistakes) "
+    r"(startups?|founders?|businesses?) (fail|struggle|close|shut down)|"
+    r"how (does|do) (venture capital|fundraising|equity|vesting|cap table|term sheet|saas|mrr|arr) work|"
+    r"(explain|define|what does) (mrr|arr|ltv|cac|burn rate|runway|equity|vesting|pmf|saas|b2b|b2c|mvp) (mean|stand for)?)\b",
+    re.IGNORECASE,
+)
+
 # Meta questions about the bot itself — what it does, how to use it.
 _META_BOT_RE = re.compile(
     r"\b(what (can|does|is) (this|the) (chatbot|bot|advisor|assistant|tool|ai|you) (do|help with|offer|for)|"
@@ -202,6 +219,15 @@ _META_BOT_RE = re.compile(
     r"how (does|do) (this|you) work|"
     r"what are you (here for|for|able to do)|"
     r"what (kind of|type of) (help|questions|things) (can you|do you) (help with|answer|handle))\b",
+    re.IGNORECASE,
+)
+
+# Out-of-scope agent requests — founder wants the bot to act on their behalf.
+_AGENT_REQUEST_RE = re.compile(
+    r"\b(speak to|talk to|contact|reach out to|email|call|negotiate with|pitch to|"
+    r"represent me (to|with)|act as my|be my (agent|representative|lawyer|advisor on behalf)|"
+    r"on my behalf|write (to|for) my (investor|vc|bank|partner|client|customer)|"
+    r"send (an email|a message|a proposal) to)\b",
     re.IGNORECASE,
 )
 
@@ -228,6 +254,16 @@ _HELP_WITH_RE = re.compile(
     r"not sure (how to|what to|which to|where to) (start|begin|choose|decide|prioritize))\b",
     re.IGNORECASE,
 )
+
+
+def looks_like_agent_request(text: str) -> bool:
+    """Founder wants the bot to act on their behalf — out of scope."""
+    return bool(_AGENT_REQUEST_RE.search(text or ""))
+
+
+def looks_like_general_knowledge(text: str) -> bool:
+    """General startup knowledge question — answer briefly, pivot to their business."""
+    return bool(_GENERAL_KNOWLEDGE_RE.search(text or ""))
 
 
 def looks_like_meta_bot(text: str) -> bool:
@@ -279,6 +315,10 @@ def _pre_classify(messages: List[dict], user_input: str) -> Intent | None:
         return Intent.SOCIAL
     if looks_like_meta_bot(user_input):
         return Intent.META_BOT
+    if looks_like_agent_request(user_input):
+        return Intent.AGENT_REQUEST
+    if looks_like_general_knowledge(user_input):
+        return Intent.GENERAL_KNOWLEDGE
     if looks_like_ss_info(user_input):
         return Intent.ON_TOPIC
     if looks_like_help_with(user_input):
@@ -377,9 +417,9 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "Tell me what you\u2019re building and where you\u2019re stuck."
         ),
         Intent.OFF_TOPIC: (
-            "That\u2019s outside what I can help with here. "
-            "I\u2019m focused on founders and their businesses \u2014 "
-            "what are you building, and where are you stuck right now?"
+            "I\u2019m really only set up to talk business \u2014 but if something\u2019s on your mind, "
+            "feel free to share what\u2019s going on with your startup. "
+            "What are you building and where are you stuck?"
         ),
         Intent.ABUSE: (
             "Happy to help with your business \u2014 let\u2019s keep it respectful. "
@@ -406,6 +446,16 @@ def bounded_response(intent: Intent, context: str = "") -> tuple[str, str | None
             "I\u2019m the Simplified Startup AI Advisor. Tell me about your business \u2014 "
             "what stage you\u2019re at, what\u2019s holding you back \u2014 and I\u2019ll point you "
             "to the service that fits, or connect you with a real person if you want to take it further."
+        ),
+        Intent.AGENT_REQUEST: (
+            "That\u2019s not something I can do directly \u2014 I\u2019m an AI, not a person. "
+            "A real person on the strategy call could help you think through and prepare for that. "
+            "What stage is your business at right now?"
+        ),
+        Intent.GENERAL_KNOWLEDGE: (
+            "Happy to give you a quick answer on that \u2014 though the most useful thing I can do "
+            "is help you figure out what Simplified Startup service fits your situation. "
+            "Tell me what you\u2019re building and where you\u2019re stuck, and we\u2019ll go from there."
         ),
         Intent.FAREWELL: (
             "Good luck with everything \u2014 hope it goes well! "
