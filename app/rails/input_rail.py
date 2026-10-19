@@ -224,9 +224,12 @@ _META_BOT_RE = re.compile(
 
 # Out-of-scope agent requests — founder wants the bot to act on their behalf.
 _AGENT_REQUEST_RE = re.compile(
-    r"\b(speak to|talk to|contact|reach out to|email|call|negotiate with|pitch to|"
-    r"represent me (to|with)|act as my|be my (agent|representative|lawyer|advisor on behalf)|"
-    r"on my behalf|write (to|for) my (investor|vc|bank|partner|client|customer)|"
+    r"\b(speak to|talk to)\b.{0,30}\b(investor|vc|bank|partner|client|customer|lawyer|advisor|them|him|her)\b"
+    r"|"
+    r"\b(contact|reach out to|email|negotiate with|pitch to)\b.{0,30}\b(investor|vc|bank|partner|client|customer)\b"
+    r"|"
+    r"\b(represent me (to|with)|act as my|be my (agent|representative|lawyer)|on my behalf|"
+    r"write (to|for) my (investor|vc|bank|partner|client|customer)|"
     r"send (an email|a message|a proposal) to)\b",
     re.IGNORECASE,
 )
